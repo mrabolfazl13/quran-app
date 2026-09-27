@@ -45,10 +45,21 @@ the UI must confirm it explicitly rather than treat it as a toggle.
 
 Statuses are CHECK-constrained strings, not integers: bands
 (`new|unstable|weak|stable|mastered`), item status
-(`active|paused|graduated|dropped`), error kinds, relation types
-(`explicit|textual|linguistic|thematic|educational|editorial`), licence status
-(`clear|attribution-required|unresolved`). `unresolved` rows are imported but
-must be hidden from reading surfaces until licensing is confirmed.
+(`active|paused|graduated|dropped`), relation types
+(`explicit|textual|linguistic|thematic|educational|editorial`) on
+`ayah_relation.type`, `concept.relation_type` and `concept_ayah.type`, licence
+status (`clear|attribution-required|unresolved`) on `content_pack` and
+`audio_track`, anchor role, transition kind, confusion origin, revelation
+place, and the 15 `RecallMode` values on `hifz_attempt.mode`. Each of these was
+verified by writing a bad value into a real in-memory SQLite database built
+from `core/src/contracts/db.sql` and watching it get rejected, and a good value
+get accepted.
+
+Error kinds are the exception: they live inside `hifz_attempt.errors` as JSON,
+so no CHECK can reach them. They are validated in code
+(`core/src/contracts/hifz.ts`, enforced on write by the desktop engine facade).
+`unresolved` rows are imported but must be hidden from reading surfaces until
+licensing is confirmed.
 
 ## Derived columns
 

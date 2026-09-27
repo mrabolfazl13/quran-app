@@ -24,7 +24,7 @@ CREATE TABLE content_pack (
   source TEXT NOT NULL,
   license_name TEXT NOT NULL,
   license_spdx TEXT,
-  license_status TEXT NOT NULL,
+  license_status TEXT NOT NULL CHECK (license_status IN ('clear','attribution-required','unresolved')),
   license_notes TEXT NOT NULL,
   attribution TEXT NOT NULL,
   checksum TEXT NOT NULL,
@@ -127,14 +127,14 @@ CREATE TABLE concept (
   label_fa TEXT NOT NULL,
   label_en TEXT NOT NULL,
   description_fa TEXT NOT NULL,
-  relation_type TEXT NOT NULL,
+  relation_type TEXT NOT NULL CHECK (relation_type IN ('explicit','textual','linguistic','thematic','educational','editorial')),
   produced_by TEXT NOT NULL
 );
 
 CREATE TABLE concept_ayah (
   concept_id TEXT NOT NULL REFERENCES concept(id),
   verse_key TEXT NOT NULL REFERENCES ayah(verse_key),
-  type TEXT NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('explicit','textual','linguistic','thematic','educational','editorial')),
   reason TEXT NOT NULL,
   PRIMARY KEY (concept_id, verse_key, type)
 );
@@ -154,7 +154,7 @@ CREATE TABLE audio_track (
   reciter TEXT NOT NULL,
   file_path TEXT NOT NULL,
   duration_ms INTEGER,
-  license_status TEXT NOT NULL
+  license_status TEXT NOT NULL CHECK (license_status IN ('clear','attribution-required','unresolved'))
 );
 
 -- ------------------------------------------------------------- user data
@@ -261,7 +261,7 @@ CREATE TABLE hifz_attempt (
   item_id TEXT NOT NULL REFERENCES hifz_item(id) ON DELETE CASCADE,
   verse_key TEXT NOT NULL,
   session_id TEXT,
-  mode TEXT NOT NULL,
+  mode TEXT NOT NULL CHECK (mode IN ('segment','opening','middle','ending','transition','continue-ayah','continue-sequence','missing-word','first-word-cue','last-word-cue','reverse','random','audio-recall','full-ayah','full-sequence')),
   started_at TEXT NOT NULL,
   completed_at TEXT,
   produced TEXT NOT NULL,
