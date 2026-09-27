@@ -10,6 +10,12 @@ target/
 # raw downloads and generated packs (rebuilt by tools/content)
 data/raw/
 data/build/
+data/*.log
+
+# local-AI measurement harness: never a product dependency, and its 260 MB of
+# ONNX graphs plus its own tree are re-downloadable, so they stay off the repo.
+experiments/local-ai/models/
+experiments/local-ai/node_modules/
 
 # local databases produced by running the app
 *.sqlite
