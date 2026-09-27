@@ -13,7 +13,12 @@
 
 import type { AyahWord, VerseKey } from '../../src/contracts/quran';
 import type {
+  ConfusionGroup,
+  DetectedError,
+  ErrorKind,
   HifzItem,
+  HifzSegment,
+  HifzTransition,
   RecallAttempt,
   RecitedWord,
 } from '../../src/contracts/hifz';
@@ -198,4 +203,77 @@ export function makeAttempt(
 export function dayIso(day: number, hour = 0): string {
   const date = new Date(Date.UTC(2026, 0, 1 + day, hour, 0, 0));
   return `${date.toISOString().slice(0, 11)}${String(hour).padStart(2, '0')}:00:00.000Z`;
+}
+
+/** A segment row with a chosen stability, for scheduler/report tests. */
+export function makeSegment(
+  overrides: Partial<HifzSegment> & Pick<HifzSegment, 'itemId'>,
+): HifzSegment {
+  const position = overrides.position ?? 0;
+  return {
+    id: `${overrides.itemId}:s${position}`,
+    position,
+    fromWord: 1,
+    toWord: 2,
+    text: 'segment',
+    meaningFa: null,
+    meaningSource: null,
+    stability: 0,
+    errorCount: 0,
+    ...overrides,
+  };
+}
+
+/** A transition row with a chosen stability. */
+export function makeTransition(
+  overrides: Partial<HifzTransition> & Pick<HifzTransition, 'itemId'>,
+): HifzTransition {
+  const toWord = overrides.toWord ?? 2;
+  const kind = overrides.kind ?? 'intra';
+  return {
+    id: `${overrides.itemId}:t${kind}${toWord}`,
+    kind,
+    toVerseKey: kind === 'inter' ? '112:2' : null,
+    toWord,
+    successCount: 0,
+    failureCount: 0,
+    stability: 0,
+    lastPracticedAt: null,
+    ...overrides,
+  };
+}
+
+/** A confusion group row. */
+export function makeGroup(
+  overrides: Partial<ConfusionGroup> & Pick<ConfusionGroup, 'verseKeys'>,
+): ConfusionGroup {
+  const verseKeys = [...overrides.verseKeys].sort();
+  return {
+    id: overrides.id ?? `cg-${overrides.origin ?? 'user'}-${verseKeys.join('+')}`,
+    label: null,
+    origin: 'user',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    lastTriggeredAt: null,
+    confusionCount: 0,
+    ...overrides,
+    verseKeys,
+  };
+}
+
+/** A detected-error row. */
+export function makeError(
+  kind: ErrorKind,
+  expectedPosition: number,
+  overrides: Partial<DetectedError> = {},
+): DetectedError {
+  return {
+    kind,
+    expectedPosition,
+    expected: null,
+    actual: null,
+    confusedWithVerseKey: null,
+    segmentPosition: null,
+    explanation: 'fixture',
+    ...overrides,
+  };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Ayah, Surah } from '../../src/contracts/quran';
+import type { Ayah, Surah, VerseKey } from '../../src/contracts/quran';
 import {
   CORPUS_EXPECT,
   verifyCorpus,
@@ -105,7 +105,7 @@ describe('verifyCorpus structural checks', () => {
   });
 
   it('flags a duplicated verse key', () => {
-    const dup = [clean[0]!, clean[1]!, { ...clean[2]!, verseKey: '1:1' }];
+    const dup = [clean[0]!, clean[1]!, { ...clean[2]!, verseKey: '1:1' as VerseKey }];
     const report = verifyCorpus(dup, [surah(1, 2), surah(2, 1)]);
     expect(report.issues.filter((i) => i.code === 'duplicate-key')).toHaveLength(1);
     expect(report.issues.find((i) => i.code === 'duplicate-key')!.subject).toBe('1:1');

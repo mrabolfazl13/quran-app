@@ -29,7 +29,13 @@ export interface Surah {
   pagesTo: number;
   firstVerseKey: VerseKey;
   lastVerseKey: VerseKey;
-  /** True when the basmalah is counted as verse 1 (only An-Naml: false, Al-Fatihah: true). */
+  /**
+   * True when a separate bismillah line is rendered *before* verse 1.
+   * Provider value, stored verbatim: false only for At-Tawbah (9, no bismillah)
+   * and Al-Fatihah (1, where the bismillah IS verse 1). An-Naml (27) is true —
+   * its bismillah is not a verse, but it is not a separate prefix line either,
+   * and the provider does not distinguish that case here.
+   */
   bismillahPre: boolean;
 }
 
