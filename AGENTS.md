@@ -4,6 +4,19 @@ Offline Quran learning, understanding, tafsir and hifz platform.
 Desktop: Tauri + React + TypeScript. Mobile: Flutter + Dart (phase 2).
 **No backend. No network at runtime.**
 
+## Delivery order (user directive, 2026-09-28)
+
+```
+1. Desktop  — Tauri app, complete and verified first
+2. Web      — same app served on a local HTTP port, installable PWA,
+              cross-platform installer package, started only after desktop works
+3. Android  — Flutter port, phase 2
+```
+
+The web target is a real deliverable, not a preview build: it consumes the same
+`@quran/core` and `DataGateway`, persists locally without Tauri, and must install
+and run on Windows, macOS and Linux. Nothing web may fork engine logic.
+
 ## Non-negotiables
 
 1. **Quran text is immutable.** Nothing may alter, "fix", rejoin or re-vocalise

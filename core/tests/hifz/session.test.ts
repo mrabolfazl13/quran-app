@@ -36,7 +36,6 @@ import {
   WEAK_TRANSITION_STABILITY,
 } from '../../src/hifz/params';
 import {
-  AYAH_TEXT,
   ayahText,
   dayIso,
   makeAttempt,
@@ -60,8 +59,8 @@ const modesOf = (steps: SessionStep[]) => steps.map((s) => s.mode);
  * ------------------------------------------------------------------ */
 
 function planInput(): ReviewContextInput {
-  const a255 = segmentAyah({ itemId: 'i-255', verseKey: '2:255', text: AYAH_TEXT['2:255'] });
-  const a112 = segmentAyah({ itemId: 'i-112a', verseKey: '112:1', text: AYAH_TEXT['112:1'], nextVerseKey: '112:2' });
+  const a255 = segmentAyah({ itemId: 'i-255', verseKey: '2:255', text: ayahText('2:255') });
+  const a112 = segmentAyah({ itemId: 'i-112a', verseKey: '112:1', text: ayahText('112:1'), nextVerseKey: '112:2' });
   return {
     nowIso: dayIso(30),
     items: [
@@ -294,7 +293,7 @@ describe('advanceStability', () => {
     expect(advanceStability(0.5, false)).toBeCloseTo(0.5 * (1 - LEARN_RATE), 10);
     expect(advanceStability(0.5, true)).toBeGreaterThan(0.5);
     expect(advanceStability(-2, true)).toBeCloseTo(LEARN_RATE, 10);
-    expect(advanceStability(42, false)).toBe(0);
+    expect(advanceStability(42, false)).toBeCloseTo(1 - LEARN_RATE, 10);
   });
 
   it('converges upward over repeated successes', () => {
@@ -310,7 +309,7 @@ describe('advanceStability', () => {
  * ------------------------------------------------------------------ */
 
 function recited(): { attempts: RecallAttempt[]; results: Record<string, ClassificationResult> } {
-  const a255 = segmentAyah({ itemId: 'i-255', verseKey: '2:255', text: AYAH_TEXT['2:255'] });
+  const a255 = segmentAyah({ itemId: 'i-255', verseKey: '2:255', text: ayahText('2:255') });
   const r255 = classifyRecitation({
     expected: words('2:255'),
     produced: producedFrom('2:255', { drop: [4, 5] }).map((w) => w.text),
@@ -356,7 +355,7 @@ function recited(): { attempts: RecallAttempt[]; results: Record<string, Classif
 
 function reportInput() {
   const { attempts, results } = recited();
-  const a255 = segmentAyah({ itemId: 'i-255', verseKey: '2:255', text: AYAH_TEXT['2:255'] });
+  const a255 = segmentAyah({ itemId: 'i-255', verseKey: '2:255', text: ayahText('2:255') });
   const items = [
     makeItem({
       id: 'i-255',
@@ -405,7 +404,7 @@ describe('session report', () => {
     const report = computeSessionReport(input);
     const expected = results.r255!.expectedWordCount + results.r112a!.expectedWordCount + results.r112c!.expectedWordCount;
     const correct = results.r255!.correctWordCount + results.r112a!.correctWordCount + results.r112c!.correctWordCount;
-    expect(expected).toBe(58);
+    expect(expected).toBe(59);
     expect(report.overallRecall).toBeCloseTo(correct / expected, 4);
     expect(report.overallRecall).toBeLessThan(1);
     expect(report.newItemsLearned).toBe(1);
@@ -453,7 +452,13 @@ describe('session report', () => {
   it('flags a kind only once it repeats', () => {
     const report = computeSessionReport(reportInput().input);
     expect(REPEATED_ERROR_MIN_COUNT).toBe(2);
-    expect(report.repeatedErrors).toEqual([{ kind: 'omission', count: 2 }]);
+    // two omissions, and two attempts that broke down in the first third
+    expect(report.repeatedErrors).toEqual([
+      { kind: 'beginning-failure', count: 2 },
+      { kind: 'omission', count: 2 },
+    ]);
+    // a one-off confusion kind is not a "repeated error" yet
+    expect(report.repeatedErrors.some((e) => e.kind === 'similar-ayah-confusion')).toBe(false);
   });
 
   it('reports stability before and after for every touched item', () => {
