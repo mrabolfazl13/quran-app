@@ -51,6 +51,10 @@ export interface Ayah {
   textUthmani: string;
   /** Uthmani simplified, for search normalisation input. */
   textUthmaniSimple: string | null;
+  /** Word count over the filtered token stream; recomputed by integrity checks. */
+  wordCount: number;
+  /** FNV fingerprint of the normalised text; recomputed by integrity checks. */
+  normalizedHash: string;
 }
 
 export interface AyahWord {

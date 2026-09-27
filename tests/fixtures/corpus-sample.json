@@ -1,0 +1,285 @@
+{
+ "generatedFrom": "Quran.com API v4, raw responses captured 2026-09-28",
+ "note": "test fixture only - authoritative text lives in content packs",
+ "ayahs": [
+  {
+   "verseKey": "1:1",
+   "chapter": 1,
+   "verse": 1,
+   "textUthmani": "بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ",
+   "translationEn": "In the name of God, the Lord of Mercy, the Giver of Mercy!",
+   "translationFa": "به نام الله بخشندۀ مهربان",
+   "normalized": "بسم الله الرحمن الرحيم"
+  },
+  {
+   "verseKey": "1:2",
+   "chapter": 1,
+   "verse": 2,
+   "textUthmani": "ٱلْحَمْدُ لِلَّهِ رَبِّ ٱلْعَـٰلَمِينَ",
+   "translationEn": "Praise belongs to God, Lord of the Worlds,",
+   "translationFa": "تمام ستایش‌ها [و سپاس‌ها] از آنِ الله ـ پروردگار جهانیان‌ ـ است؛",
+   "normalized": "الحمد لله رب العلمين"
+  },
+  {
+   "verseKey": "1:5",
+   "chapter": 1,
+   "verse": 5,
+   "textUthmani": "إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ",
+   "translationEn": "It is You we worship; it is You we ask for help.",
+   "translationFa": "[پروردگارا] تنها تو را عبادت می‌کنیم و تنها از تو یاری [و مدد] می‌جوییم.",
+   "normalized": "اياك نعبد واياك نستعين"
+  },
+  {
+   "verseKey": "1:6",
+   "chapter": 1,
+   "verse": 6,
+   "textUthmani": "ٱهْدِنَا ٱلصِّرَٰطَ ٱلْمُسْتَقِيمَ",
+   "translationEn": "Guide us to the straight path:",
+   "translationFa": "ما را به راه راست هدایت فرما [و همواره در این راه، ثابت‌قدم بدار]؛",
+   "normalized": "اهدنا الصرط المستقيم"
+  },
+  {
+   "verseKey": "1:7",
+   "chapter": 1,
+   "verse": 7,
+   "textUthmani": "صِرَٰطَ ٱلَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ ٱلْمَغْضُوبِ عَلَيْهِمْ وَلَا ٱلضَّآلِّينَ",
+   "translationEn": "the path of those You have blessed, those who incur no anger and who have not gone astray.",
+   "translationFa": "راه کسانی [همچون پیامبران، شهیدان، راستگویان و نیکوکاران] ‌که به آنان نعمت داده‌ای، نه [راه] کسانی که بر آنان خشم گرفته شده است [= یهود] و نه [راه] گمراهان [= نصاری].",
+   "normalized": "صرط الذين انعمت عليهم غير المغضوب عليهم ولا الضالين"
+  },
+  {
+   "verseKey": "2:255",
+   "chapter": 2,
+   "verse": 255,
+   "textUthmani": "ٱللَّهُ لَآ إِلَـٰهَ إِلَّا هُوَ ٱلْحَىُّ ٱلْقَيُّومُ ۚ لَا تَأْخُذُهُۥ سِنَةٌ وَلَا نَوْمٌ ۚ لَّهُۥ مَا فِى ٱلسَّمَـٰوَٰتِ وَمَا فِى ٱلْأَرْضِ ۗ مَن ذَا ٱلَّذِى يَشْفَعُ عِندَهُۥٓ إِلَّا بِإِذْنِهِۦ ۚ يَعْلَمُ مَا بَيْنَ أَيْدِيهِمْ وَمَا خَلْفَهُمْ ۖ وَلَا يُحِيطُونَ بِشَىْءٍ مِّنْ عِلْمِهِۦٓ إِلَّا بِمَا شَآءَ ۚ وَسِعَ كُرْسِيُّهُ ٱلسَّمَـٰوَٰتِ وَٱلْأَرْضَ ۖ وَلَا يَـُٔودُهُۥ حِفْظُهُمَا ۚ وَهُوَ ٱلْعَلِىُّ ٱلْعَظِيمُ",
+   "translationEn": "God: there is no god but Him, the Ever Living, the Ever Watchful.Neither slumber nor sleep overtakes Him. All that is in the heavens and in the earth belongs to Him. Who is there that can intercede with Him except by His leave? He knows what is before them and what is behind them, but they do not comprehend any of His knowledge except what He wills. His throne extends over the heavens and the earth; it does not weary Him to preserve them both. He is the Most High, the Tremendous.",
+   "translationFa": "الله [معبودِ راستین است؛] هیچ معبودی [به‌حق] جز او نیست؛ زندۀ پاینده [و قائم به ذات] است؛ نه خوابی سبک او را فرا می‌گیرد و نه خوابی سنگین؛ [و لحظه‌ای از تدبیر جهان هستی، غافل نمی‌ماند]؛ آنچه در آسمان‌ها و زمین است، از آنِ اوست. کیست که نزد او جز به فرمانش شفاعت کند؟ گذشته و آیندۀ آنان [= بندگان] را می‌داند و [آنان] به چیزی از علم او احاطه [و آگاهی] نمی‌یابند، مگر آنچه خود [الله] بخواهد. کرسیِ او آسمان‌ها و زمین را در بر گرفته است و نگهداشتنِ آنها بر او [سنگین و] دشوار نیست و او بلندمرتبه [و] بزرگ است.",
+   "normalized": "الله لا اله الا هو الحي القيوم ۚ لا تاخذهۥ سنه ولا نوم ۚ لهۥ ما في السموت وما في الارض ۗ من ذا الذي يشفع عندهۥ الا باذنهۦ ۚ يعلم ما بين ايديهم وما خلفهم ۖ ولا يحيطون بشيء من علمهۦ الا بما شاء ۚ وسع كرسيه السموت والارض ۖ ولا يودهۥ حفظهما ۚ وهو العلي العظيم"
+  },
+  {
+   "verseKey": "108:1",
+   "chapter": 108,
+   "verse": 1,
+   "textUthmani": " إِنَّآ أَعْطَيْنَـٰكَ ٱلْكَوْثَرَ",
+   "translationEn": "We have truly given abundance to you [Prophet]––",
+   "translationFa": "[ای پیامبر،] به راستی که ما خیرِ بی‌نهایت [از جمله رود کوثر در بهشت را] به تو عطا کردیم؛",
+   "normalized": "انا اعطينك الكوثر"
+  },
+  {
+   "verseKey": "108:2",
+   "chapter": 108,
+   "verse": 2,
+   "textUthmani": "فَصَلِّ لِرَبِّكَ وَٱنْحَرْ",
+   "translationEn": "so pray to your Lord and make your sacrifice to Him alone––",
+   "translationFa": "پس برای پروردگارت نماز بخوان و قربانی کن.",
+   "normalized": "فصل لربك وانحر"
+  },
+  {
+   "verseKey": "108:3",
+   "chapter": 108,
+   "verse": 3,
+   "textUthmani": "إِنَّ شَانِئَكَ هُوَ ٱلْأَبْتَرُ",
+   "translationEn": "it is the one who hates you who has been cut off.",
+   "translationFa": "بی‌تردید، دشمنت [از همۀ خیرات و برکات و نام و نشان، بی‌بهره و] بُریده است.",
+   "normalized": "ان شانئك هو الابتر"
+  },
+  {
+   "verseKey": "112:1",
+   "chapter": 112,
+   "verse": 1,
+   "textUthmani": " قُلْ هُوَ ٱللَّهُ أَحَدٌ",
+   "translationEn": "Say, ‘He is God the One,",
+   "translationFa": "[ای پیامبر] بگو: «او الله یکتا و یگانه است.",
+   "normalized": "قل هو الله احد"
+  },
+  {
+   "verseKey": "112:2",
+   "chapter": 112,
+   "verse": 2,
+   "textUthmani": "ٱللَّهُ ٱلصَّمَدُ",
+   "translationEn": "God the eternal.",
+   "translationFa": "الله بی‌نیاز است [و همه نیازمند او هستند].",
+   "normalized": "الله الصمد"
+  },
+  {
+   "verseKey": "112:3",
+   "chapter": 112,
+   "verse": 3,
+   "textUthmani": "لَمْ يَلِدْ وَلَمْ يُولَدْ",
+   "translationEn": "He begot no one nor was He begotten.",
+   "translationFa": "نه [فرزندی] زاده و نه [از کسی] زاده شده است.",
+   "normalized": "لم يلد ولم يولد"
+  },
+  {
+   "verseKey": "112:4",
+   "chapter": 112,
+   "verse": 4,
+   "textUthmani": "وَلَمْ يَكُن لَّهُۥ كُفُوًا أَحَدٌۢ",
+   "translationEn": "No one is comparable to Him.’",
+   "translationFa": "و هیچ کس همانند و همتای او نبوده و نیست».",
+   "normalized": "ولم يكن لهۥ كفوا احدۢ"
+  },
+  {
+   "verseKey": "114:1",
+   "chapter": 114,
+   "verse": 1,
+   "textUthmani": " قُلْ أَعُوذُ بِرَبِّ ٱلنَّاسِ",
+   "translationEn": "Say, ‘I seek refuge with the Lord of people,",
+   "translationFa": "[ای پیامبر،] بگو: «به پروردگار مردم پناه می‌برم،",
+   "normalized": "قل اعوذ برب الناس"
+  },
+  {
+   "verseKey": "114:2",
+   "chapter": 114,
+   "verse": 2,
+   "textUthmani": "مَلِكِ ٱلنَّاسِ",
+   "translationEn": "the Controller of people,",
+   "translationFa": "فرمانروای مردم،",
+   "normalized": "ملك الناس"
+  },
+  {
+   "verseKey": "114:3",
+   "chapter": 114,
+   "verse": 3,
+   "textUthmani": "إِلَـٰهِ ٱلنَّاسِ",
+   "translationEn": "the God of people,",
+   "translationFa": "معبود مردم،",
+   "normalized": "اله الناس"
+  },
+  {
+   "verseKey": "114:4",
+   "chapter": 114,
+   "verse": 4,
+   "textUthmani": "مِن شَرِّ ٱلْوَسْوَاسِ ٱلْخَنَّاسِ",
+   "translationEn": "against the harm of the slinking whisperer––",
+   "translationFa": "از شرِ [شیطانِ] وسوسه‌گر که [به هنگام ذکر الله،] پنهان می‌گردد؛",
+   "normalized": "من شر الوسواس الخناس"
+  },
+  {
+   "verseKey": "114:5",
+   "chapter": 114,
+   "verse": 5,
+   "textUthmani": "ٱلَّذِى يُوَسْوِسُ فِى صُدُورِ ٱلنَّاسِ",
+   "translationEn": "who whispers into the hearts of people––",
+   "translationFa": "همان [وسوسه‌گری] که در دل‌های مردم وسوسه می‌کند؛",
+   "normalized": "الذي يوسوس في صدور الناس"
+  },
+  {
+   "verseKey": "114:6",
+   "chapter": 114,
+   "verse": 6,
+   "textUthmani": "مِنَ ٱلْجِنَّةِ وَٱلنَّاسِ",
+   "translationEn": "whether they be jinn or people.’",
+   "translationFa": "از جنیان [باشد] و [یا از] آدمیان».",
+   "normalized": "من الجنه والناس"
+  },
+  {
+   "verseKey": "55:13",
+   "chapter": 55,
+   "verse": 13,
+   "textUthmani": "فَبِأَىِّ ءَالَآءِ رَبِّكُمَا تُكَذِّبَانِ",
+   "translationEn": "Which, then, of your Lord’s blessings do you both deny?",
+   "translationFa": "پس [ای جن و انس] كدام یک از نعمت‌های پروردگارتان را انكار مى‌كنید؟",
+   "normalized": "فباي ءالاء ربكما تكذبان"
+  },
+  {
+   "verseKey": "55:16",
+   "chapter": 55,
+   "verse": 16,
+   "textUthmani": "فَبِأَىِّ ءَالَآءِ رَبِّكُمَا تُكَذِّبَانِ",
+   "translationEn": "Which, then, of your Lord’s blessings do you both deny?",
+   "translationFa": "پس [ای جن و انس] كدام یک از نعمت‌های پروردگارتان را انكار مى‌كنید؟",
+   "normalized": "فباي ءالاء ربكما تكذبان"
+  },
+  {
+   "verseKey": "55:18",
+   "chapter": 55,
+   "verse": 18,
+   "textUthmani": "فَبِأَىِّ ءَالَآءِ رَبِّكُمَا تُكَذِّبَانِ",
+   "translationEn": "Which, then, of your Lord’s blessings do you both deny?",
+   "translationFa": "پس [ای گروه انس و جن] کدام یک از نعمت‌های پروردگارتان را تکذیب می‌کنید؟",
+   "normalized": "فباي ءالاء ربكما تكذبان"
+  },
+  {
+   "verseKey": "77:15",
+   "chapter": 77,
+   "verse": 15,
+   "textUthmani": "وَيْلٌ يَوْمَئِذٍ لِّلْمُكَذِّبِينَ",
+   "translationEn": "Woe, on that Day, to those who denied the truth!",
+   "translationFa": "در آن روز، [= قیامت] وای بر تکذیب‌کنندگان!",
+   "normalized": "ويل يومئذ للمكذبين"
+  },
+  {
+   "verseKey": "77:19",
+   "chapter": 77,
+   "verse": 19,
+   "textUthmani": "وَيْلٌ يَوْمَئِذٍ لِّلْمُكَذِّبِينَ",
+   "translationEn": "Woe, on that Day, to those who denied the truth!",
+   "translationFa": "در آن روز، وای بر تکذیب‌کنندگان!",
+   "normalized": "ويل يومئذ للمكذبين"
+  },
+  {
+   "verseKey": "77:24",
+   "chapter": 77,
+   "verse": 24,
+   "textUthmani": "وَيْلٌ يَوْمَئِذٍ لِّلْمُكَذِّبِينَ",
+   "translationEn": "Woe, on that Day, to those who denied the truth!",
+   "translationFa": "در آن روز، وای بر تکذیب‌کنندگان!",
+   "normalized": "ويل يومئذ للمكذبين"
+  },
+  {
+   "verseKey": "26:9",
+   "chapter": 26,
+   "verse": 9,
+   "textUthmani": "وَإِنَّ رَبَّكَ لَهُوَ ٱلْعَزِيزُ ٱلرَّحِيمُ",
+   "translationEn": "your Lord alone is the Almighty, the Merciful.",
+   "translationFa": "و بی‌تردید، پروردگارت شکست‌ناپذیرِ مهربان است.",
+   "normalized": "وان ربك لهو العزيز الرحيم"
+  },
+  {
+   "verseKey": "26:68",
+   "chapter": 26,
+   "verse": 68,
+   "textUthmani": "وَإِنَّ رَبَّكَ لَهُوَ ٱلْعَزِيزُ ٱلرَّحِيمُ",
+   "translationEn": "your Lord alone is the Almighty, the Merciful.",
+   "translationFa": "و بی‌تردید، پرورگارت همان شکست‌ناپذیرِ مهربان است.",
+   "normalized": "وان ربك لهو العزيز الرحيم"
+  },
+  {
+   "verseKey": "26:104",
+   "chapter": 26,
+   "verse": 104,
+   "textUthmani": "وَإِنَّ رَبَّكَ لَهُوَ ٱلْعَزِيزُ ٱلرَّحِيمُ",
+   "translationEn": "your Lord alone is the Almighty, the Merciful.",
+   "translationFa": "و بی‌تردید، پروردگارت همان شکست‌ناپذیرِ مهربان است.",
+   "normalized": "وان ربك لهو العزيز الرحيم"
+  },
+  {
+   "verseKey": "26:108",
+   "chapter": 26,
+   "verse": 108,
+   "textUthmani": "فَٱتَّقُوا۟ ٱللَّهَ وَأَطِيعُونِ",
+   "translationEn": "be mindful of God and obey me.",
+   "translationFa": "پس، از الله پروا کنید و مطیع [دستورهای] من باشید.",
+   "normalized": "فاتقوا۟ الله واطيعون"
+  },
+  {
+   "verseKey": "26:110",
+   "chapter": 26,
+   "verse": 110,
+   "textUthmani": "فَٱتَّقُوا۟ ٱللَّهَ وَأَطِيعُونِ",
+   "translationEn": "be mindful of God and obey me.’",
+   "translationFa": "پس، از الله پروا کنید و مطیع [دستورهای] من باشید».",
+   "normalized": "فاتقوا۟ الله واطيعون"
+  },
+  {
+   "verseKey": "26:126",
+   "chapter": 26,
+   "verse": 126,
+   "textUthmani": "فَٱتَّقُوا۟ ٱللَّهَ وَأَطِيعُونِ",
+   "translationEn": "be mindful of God and obey me.",
+   "translationFa": "پس، از الله پروا کنید و مطیع [دستورهای] من باشید.",
+   "normalized": "فاتقوا۟ الله واطيعون"
+  }
+ ]
+}

@@ -44,16 +44,23 @@ Updated 2026-09-28. Never record progress here that is not true of the tree.
 
 ## Known issues
 
+- **Provider Uthmani text is not Unicode NFC.** The mushaf encodes combining
+  marks shadda-then-fatha (`0651 064E`); NFC reorders them (`064E 0651`). A tool
+  that normalises on the way in will report a byte difference on text that is
+  not corrupted. Consequence: import compares raw code points only, and
+  `normalizedText()` must stay mark-order insensitive (it is — asserted in
+  `tests/unit/corpus-fixture.test.ts`). Never "repair" the script form.
 - Bulk translation responses (`/quran/translations/{id}`) carry no `verse_key`,
-  only an ordered array. Alignment must be proven by per-chapter spot checks
-  before the pack is trusted; a silent off-by-one here would corrupt every
-  translation shown. Pipeline must assert, not assume.
+  only an ordered array. Chapter 112 alignment was proven by hand against an
+  independently fetched slice (english 85 and persian 135 both matched
+  positionally); the pipeline must prove every chapter, not assume. A silent
+  off-by-one here would corrupt every translation shown.
 - Provider licensing metadata is not exposed per resource. Each pack's
   `license.status` must be resolved explicitly or recorded as `unresolved` and
   shipped disabled.
-- `tools/content/package.json` scripts point at files that do not exist yet.
-- The desktop workspace has no `tauri.conf.json` yet, so `desktop:tauri` fails
-  until the Tauri agent lands its scaffold.
+- `tools/content` and `desktop` scripts reference files the running agents are
+  still creating; `npm run content:*` / `desktop:*` may fail mid-round. Not a
+  regression — no baseline existed before this session.
 
 ## Next tasks
 
