@@ -178,10 +178,13 @@ describe('English translation search', () => {
     expect(res.hits[0]!.coverage).toBe(1);
   });
 
-  it('allows scattered coverage (partial score) for translation queries', () => {
+  it('allows scattered order-preserving coverage down to MIN_SCATTER_COVERAGE', () => {
     const res = search(fullIndex(), { type: 'translation', language: 'en', text: 'worlds deny' });
-    expect(res.hits.map((h) => h.verseKey).sort()).toEqual(['1:2', '55:13']);
-    expect(res.hits.every((h) => h.coverage === 0.5)).toBe(true);
+    // 'worlds' hits 1:2 only (coverage 0.5 of the two-token query). In 55:13
+    // the first query token is absent, so the order-preserving chain matches
+    // only 'deny' — but 'deny' can never start the chain, so no hit there.
+    expect(res.hits.map((h) => h.verseKey)).toEqual(['1:2']);
+    expect(res.hits[0]!.coverage).toBe(0.5);
   });
 
   it('ignores case and punctuation', () => {
@@ -270,8 +273,13 @@ describe('pathological input guards — never throw, always a reason', () => {
     const b = search(idx, { type: 'arabic-phrase', text: '.*بسم.*', match: 'exact' });
     expect(b.rejected).toBeNull();
     expect(b.hits.map((h) => h.verseKey)).toEqual(['1:1']);
+    // Literal semantics: a character-class pattern is NOT expanded into
+    // 'Merciful|merciful' — it matches nothing and must not throw.
     const c = search(idx, { type: 'translation', language: 'en', text: '[Mm]erciful.*' });
-    expect(c.hits.map((h) => h.verseKey)).toEqual(['1:1']);
+    expect(c.hits).toHaveLength(0);
+    // Trailing/leading punctuation is simply stripped by normalisation.
+    const d = search(idx, { type: 'translation', language: 'en', text: '.*Merciful' });
+    expect(d.hits.map((h) => h.verseKey)).toEqual(['1:1']);
   });
 
   it('unknown/absent verse-like queries on an empty index return empty', () => {

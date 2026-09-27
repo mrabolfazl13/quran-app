@@ -22,6 +22,7 @@ import type {
   Translation,
   VerseKey,
 } from '../../src/contracts/quran';
+import { normalizedFingerprint, wordCount } from '../../src/normalize/arabic';
 
 export function mkAyah(chapter: number, verse: number, textUthmani: string): Ayah {
   return {
@@ -38,6 +39,9 @@ export function mkAyah(chapter: number, verse: number, textUthmani: string): Aya
     page: 1,
     textUthmani,
     textUthmaniSimple: null,
+    // Derived with the canonical normalisation — never hand-typed.
+    wordCount: wordCount(textUthmani),
+    normalizedHash: normalizedFingerprint(textUthmani),
   };
 }
 
