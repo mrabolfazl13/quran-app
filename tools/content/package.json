@@ -1,0 +1,12 @@
+{
+  "name": "@quran/content",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Fetches, validates and builds offline content packs",
+  "scripts": {
+    "fetch": "node src/fetch.ts",
+    "build": "node src/build.ts",
+    "validate": "node src/validate.ts"
+  }
+}

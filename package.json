@@ -1,0 +1,21 @@
+{
+  "name": "quran-platform",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Offline Quran learning, understanding, tafsir and hifz platform",
+  "workspaces": [
+    "core",
+    "tools/content",
+    "desktop"
+  ],
+  "scripts": {
+    "build:core": "npm run build --workspace @quran/core",
+    "test:core": "npm run test --workspace @quran/core",
+    "content:fetch": "npm run fetch --workspace @quran/content",
+    "content:build": "npm run build --workspace @quran/content",
+    "content:validate": "npm run validate --workspace @quran/content",
+    "desktop:dev": "npm run dev --workspace desktop",
+    "desktop:build": "npm run build --workspace desktop",
+    "desktop:tauri": "npm run tauri --workspace desktop"
+  }
+}

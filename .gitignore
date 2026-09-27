@@ -1,0 +1,18 @@
+node_modules/
+dist/
+build/
+target/
+*.tsbuildinfo
+.DS_Store
+.idea/
+.vscode/
+
+# raw downloads and generated packs (rebuilt by tools/content)
+data/raw/
+data/build/
+
+# local databases produced by running the app
+*.sqlite
+*.sqlite-journal
+*.wal
+*.shm
