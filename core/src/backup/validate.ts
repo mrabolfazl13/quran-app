@@ -329,7 +329,7 @@ export function validateEnvelopeObject(parsed: unknown, shared?: Ctx, opts: Insp
   if (producedBy) {
     ctx.string(producedBy, '$.producedBy', 'app');
     ctx.string(producedBy, '$.producedBy', 'version');
-    ctx.enum(producedBy, '$.producedBy', 'platform', ['desktop', 'mobile'] as const);
+    ctx.enum(producedBy, '$.producedBy', 'platform', ['desktop', 'mobile', 'web'] as const);
   }
   const checksum = ctx.string(parsed, '$', 'checksum');
   if (typeof checksum === 'string' && !/^[0-9a-f]{64}$/.test(checksum)) {

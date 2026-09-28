@@ -55,9 +55,15 @@ live:
   `desktop/src-tauri/src/commands.rs` (`app_paths`, `content_status`,
   `content_read_text`, `content_pack_stat`, `backup_write`, `backup_read`,
   `backup_list`, `sha256_text`).
-- `DevGateway` — the same contract over an in-memory store, reading the same
-  `content/` pack files over the dev server, so a browser window exercises the
-  real import path. The UI announces it (`GatewayInfo.isShippedPath`).
+- `DevGateway` — the same contract over the browser's own storage: content packs
+  fetched and parsed into memory, the user's rows persisted to IndexedDB and
+  re-applied on load. It serves two shells with one class, distinguished by
+  `GatewayInfo.shell` and surfaced to the user:
+  - `dev` — `vite dev`, labelled as such, content read through a dev middleware;
+  - `web` — the production bundle served by `scripts/serveWeb.mjs` on a local
+    port. A **shipped path** (`isShippedPath: true`): the packs come from the
+    same origin's `/content`, the backup envelope it seals says
+    `platform: "web"`, and nothing in the UI calls it a dev shell.
 
 **The Rust layer is deliberately thin.** It owns no SQL and holds no copy of the
 schema: `desktop/src/db/schema.ts` applies `core/src/contracts/db.sql` — embedded
@@ -65,8 +71,10 @@ as `schema.generated.ts` by `scripts/syncSchema.mjs`, which is run by
 `npm run build` and fails if the copy is stale. That choice is what keeps the
 delivery order honest:
 
-- the web shell needs the same schema applied to a browser SQLite (wasm-sqlite
-  with FTS5 over OPFS), and it reuses `schema.ts` verbatim — no Rust in that path;
+- the web shell persists through IndexedDB rather than a browser SQLite, so it
+  reuses `core`'s record shapes and migration *semantics* but not `db.sql`
+  verbatim — the one place where the original wasm-sqlite-over-OPFS plan was
+  traded away, and the trade is visible only below the seam;
 - the Flutter port reads the same `db.sql` text into `sqflite`;
 - a Rust-owned data layer would have forked both.
 

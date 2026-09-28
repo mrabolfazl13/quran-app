@@ -105,6 +105,40 @@ The first two rows are the reason `docs/testing.md` insists on device-level
 numbers: the same code that "imports in under two seconds" at report level took
 near three minutes on a user's machine.
 
+### The same import on the web target — device-level, packaged build
+
+Not the same work, so not comparable to the rows above: there is no SQLite and no
+IPC round trip here. `DevGateway.ready()` fetches each pack from the origin,
+verifies its checksum, and keeps the parsed records in memory; the user's own
+rows are the only thing written to disk (IndexedDB).
+
+Taken 2026-09-28 in headless Edge against
+`node bin/serveWeb.mjs` on `127.0.0.1:4173`, serving
+`release/web/quran-web-0.1.0`, with `Network.enable` on and an empty store:
+
+| Measurement | Value |
+| --- | --- |
+| Navigation → first `/content/` request | 640 ms |
+| Navigation → last `/content/` response received | 3,008 ms |
+| `ImportReport.durationMs` for that import | 2,594 ms |
+| Packs fetched / records mapped | 9 requests / 111,776 rows |
+| Counts after import, read from the running page | 114 surahs, 6,236 ayahs, 83,665 words, 18,708 translations, 1,313 tafsirs, 1,732 similar, 8 packs |
+| Non-local requests during the session | 0 |
+| Console errors | none |
+
+The 2.4 s window is nine requests over loopback dominated by payload size, not by
+parsing — the identical pack set in the dev shell (same code, `vite dev` serving
+it) imported in 2,369 ms, and the desktop path's 7–10 s is SQLite writing 111,776
+rows through Tauri IPC. Three numbers for three different jobs; the row counts
+are the only thing they agree on.
+
+With the server process killed and the cache warm (24 entries: 9 content, 8
+assets, 7 shell), a real navigation to the dead port paints the home screen, a
+Persian query answers from the memory index, and page 42 renders — 0 network
+failures and 0 exceptions. That is a cold-cache-free measurement: it says the
+bytes a running app needs are all in the cache, not that a first run can happen
+without the server.
+
 ## Engine cost — unit/model-level
 
 Measured 2026-09-28 on this machine with a throwaway vitest file
@@ -151,28 +185,46 @@ real-corpus tests take ~4 s because they read 16 raw provider files.
 audits and passed (exit 0) on the same date. These are suite durations, not
 product latencies.
 
-## Bundle size — PENDING
+## Bundle size
 
-No bundle-size figures in this document, on purpose.
-
-`npm run desktop:build` (`package.json:18`) runs
-`build = npm run sync:schema && tsc --noEmit && npm run build:vite`
-(`desktop/package.json:8`), and `sync:schema`
+The web bundle exists now, so half of this section is measured. The desktop
+half is still the same story as when it was written: `npm run desktop:build`
+(`package.json:18`) runs `build = npm run sync:schema && tsc --noEmit && npm run
+build:vite` (`desktop/package.json:8`), and `sync:schema`
 (`desktop/scripts/syncSchema.mjs`) regenerates the tracked file
 `desktop/src/db/schema.generated.ts` inside `desktop/src/db/` — a directory
-another agent was actively editing during this documentation pass. Running it
-would have overwritten that agent's work, so it was not run.
+another agent was actively editing during that documentation pass, so it was not
+run then.
 
-The numbers to fill in later, and the command that produces each:
+### Web bundle — frontend-level, from the packaged archive
+
+`npm run desktop:web:package` → `desktop/release/web/quran-web-0.1.0/`, sizes
+read off that directory on 2026-09-28 (gzip at level 9, i.e. what a
+`Content-Encoding: gzip` response would cost — note `serveWeb.mjs` does **not**
+compress, so on a LAN these bytes go out raw):
+
+| Part | Files | Raw | Gzipped |
+| --- | --- | --- | --- |
+| Whole package (with server, scripts, README) | — | 30.56 MiB | — |
+| `quran-web-0.1.0.zip` (what gets handed to a user) | — | 5.45 MiB | — |
+| `dist/content/` — the 8 validated packs | 9 | 29.10 MiB | — |
+| `dist/` shell (HTML, JS, CSS, icons, manifest, service worker) | 28 | 1.45 MiB | 1.01 MiB |
+| — of which the main JS chunk (`index-*.js`) | 1 | 425.6 KiB | 127.8 KiB |
+| — of which all JS | 12 | 598.7 KiB | — |
+| — of which CSS (`index-*.css`) | 1 | 32.9 KiB | 6.4 KiB |
+
+Two things worth reading off that table rather than away from it. The app is
+**1.45 MiB of code and 29.1 MiB of content** — any download or disk budget is a
+content budget, and the only realistic reduction is the per-word data
+(`docs/content-packs.md`), exactly as the note at the bottom of this page said.
+And the `tauriGateway` chunk (73.0 KiB raw) is still emitted into the web build
+even though that shell can never be selected there; it is dead weight of one
+dynamic import, not a forked engine.
 
 | Figure | Command that produces it |
 | --- | --- |
-| `dist/` JS + CSS sizes (gzipped and raw) | `npm run desktop:build`, then read Vite's per-chunk output / `dist/assets/*` |
-| Windows installer and unpacked app size | `npm run desktop:tauri build` (`tauri build`), output under `desktop/src-tauri/target/release/bundle/` |
+| Windows installer and unpacked app size | `npm run desktop:tauri build` (`tauri build`), output under `desktop/src-tauri/target/release/bundle/` — the installer this machine produced was 8,862,514 B |
 | bundled content size | the payload table above; the bundle ships `content/` via `bundle.resources` in `desktop/src-tauri/tauri.conf.json:33` |
-
-Fill this section in from a build taken when no one else is editing
-`desktop/src/db/`, and label it as browser/frontend-level, not device-level.
 
 ## Not measured — what must be taken before a release claim
 
@@ -187,14 +239,15 @@ says the app is fast or small; each row names who can take it.
 | Database size after a full import | **measured: 28 MB** | as above — `%APPDATA%\app.quran.platform\quran.db` (`desktop/src/gateway/tauriGateway.ts:283`, from Rust `app_data_dir()` at `desktop/src-tauri/src/commands.rs:197-202`) |
 | Interaction latency: page turn, search keystroke→results, session step grading | **not measured** | device-level runs in the packaged app; the engine-level costs above are the floor, not the experience |
 | Android / mobile figures of any kind | **does not exist** | Flutter phase has not started; there is no APK to measure (see `docs/current-state.md`) |
-| Web (localhost build) figures | **does not exist** | the browser build beyond the dev shell has not been started |
-| Bundle size | **pending** | see "Bundle size" above |
+| Web (localhost build) figures | **partly measured**: first-run content fetch spans 640 ms → 3,008 ms after navigation in the packaged build (see "The same import on the web target"). Cold start, memory and interaction latency in that build: **not measured** | Serve `release/web/…` with `node bin/serveWeb.mjs` and drive it over CDP, the way the desktop app was measured |
+| Bundle size | **web: measured** (see "Bundle size"). Desktop `dist/` from `npm run desktop:build`: still to be taken without clobbering `desktop/src/db/` | as above |
 
 Two honest observations that cost no measurement:
 
-- The app's content is 28.55 MiB of payload across 7 packs, 17.6 MiB of it in
-  one pack. Any packaging or download budget has to accommodate that, and the
-  only realistic reduction is the per-word data (`docs/content-packs.md`).
+- The app's content is 29.1 MiB across 8 packs, 17.6 MiB of it in one pack, and
+  it dwarfs the 1.45 MiB of code that displays it. Any packaging or download
+  budget is a content budget, and the only realistic reduction is the per-word
+  data (`docs/content-packs.md`).
 - The engine is pure and synchronous over plain arrays with no I/O
   (`core/src/hifz/`, `core/src/mushaf/`), so the measured numbers above are the
   whole engine cost of those calls — there is no hidden async layer making it

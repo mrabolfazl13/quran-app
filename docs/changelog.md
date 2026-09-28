@@ -43,6 +43,26 @@ matching test or command has actually been run.
   accept" pinned over the whole envelope.
 - Root scripts: `test:core`, `test:desktop`, `test:integration`, `desktop:web`,
   `desktop:web:package`.
+- Web target (delivery order step 2): `desktop/scripts/serveWeb.mjs` — a
+  dependency-free HTTP server that binds `127.0.0.1`, answers GET/HEAD only, and
+  refuses any path that resolves outside its own directory;
+  `desktop/scripts/packageWeb.mjs`, which stages the built bundle, the server,
+  the 8 packs and a `start.cmd` / `start.command` / `start.sh` into one archive
+  and sanity-imports the server it just packaged; `public/manifest.webmanifest`,
+  icons and `public/sw.js` (navigations network-first, hashed assets and content
+  cache-first) so the installed-by-nothing build keeps working with the server
+  dead.
+- A third gateway shell — `web` — in `desktop/src/gateway/index.ts`. It is the
+  same `DevGateway` class over the same IndexedDB persistence, now reporting
+  itself honestly (`isShippedPath: true`, `platform: 'web'` in every backup it
+  writes) instead of wearing the dev shell's label. No engine logic forked.
+- `tests/integration/dev-gateway-browser-restore.test.ts`: a restore's rows must
+  be visible to a *second* gateway instance the moment `importBackup()` resolves,
+  over a fake IndexedDB whose timers are recorded and never run, plus the
+  provenance each shell owes a reader.
+- `BackupEnvelope.producedBy.platform` accepts `web`; the validator's enum
+  widened with it, and a value the contract does not know is still refused as
+  `bad-value`. 2 new core tests.
 
 ### Fixed
 
@@ -71,6 +91,27 @@ building it (device-level evidence in `docs/current-state.md`):
   transaction is active` and a half-filled content table, because the app's own
   `Promise.all` of counts could interleave a read between the writer's `BEGIN`
   and its inserts on a second pooled connection.
+
+Four more, found on the packaged web build rather than in a test:
+
+- **A restore did not persist.** `DevGateway.importBackup()` ended in the same
+  350 ms-debounced `touch()` as any other edit, and the backup screen reloads the
+  shell as soon as a restore reports success — the pending timer died with the
+  page and the restored rows never reached IndexedDB. The user saw "بازیابی شد"
+  and an unchanged app. The save is now awaited and the timer cleared before the
+  method returns; the new integration test fails when the fix is reverted.
+- The web build described itself as a dev shell on `/me/content`, printing the
+  "held in memory, no FTS5" note on a bundle a user downloads and runs. The note
+  is now a property of the shell that serves it.
+- The recall session advertised «پخش صوت (بستهٔ صوتی نصب‌شده)» and offered an
+  "I heard the audio" checkbox while `content:validate` reports `صوت ۰` — a
+  control for a feature nothing in the build supports. The step now asks the
+  gateway whether a track exists for that ayah and, when none does, says so and
+  offers the same step without sound.
+- A backup written by a browser reported `platform: "desktop"`. The contract had
+  no `web` value, so honesty would have been rejected by the validator; the enum
+  was widened and the two shells now report `quran-web` / `quran-dev-shell` over
+  a platform they actually run on.
 
 Seven UI-gate defects found by exercising the app rather than building it:
 

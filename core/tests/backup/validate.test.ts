@@ -32,6 +32,26 @@ describe('inspectEnvelope — structure & seal', () => {
     if (r.ok) expect(r.warnings).toEqual([]);
   });
 
+  // The web build is a shipped producer, so `web` is a legal provenance; the
+  // enum stays closed, because an unknown platform means the file was edited or
+  // comes from an app this contract has never heard of.
+  it('accepts a file produced by the web build', () => {
+    const r = inspectEnvelope(serializedWith((env) => { env.producedBy.platform = 'web'; }));
+    expect(r.ok, JSON.stringify(r.ok ? r.warnings : r.errors)).toBe(true);
+  });
+
+  it('refuses a platform the contract does not know', () => {
+    const r = inspectEnvelope(
+      serializedWith((env) => {
+        (env.producedBy as unknown as { platform: string }).platform = 'atlas';
+      }),
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.errors.filter((e) => e.code === 'bad-value').map((e) => e.path)).toContain('$.producedBy.platform');
+    }
+  });
+
   it('detects a single flipped character inside a note body (checksum mismatch, expected vs computed)', () => {
     const env = sampleEnvelope();
     const text = serializeEnvelope(env);

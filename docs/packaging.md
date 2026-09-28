@@ -84,6 +84,79 @@ characters outside `[A-Za-z0-9._-]`. The capability set
 the four SQL plugin permissions — no filesystem, shell or HTTP plugin exists in
 `Cargo.toml`, so the binary has no way to reach the network.
 
+## The web package (delivery order step 2)
+
+The same app, minus Tauri: a static bundle plus a server small enough to read.
+
+```
+npm run desktop:web:package
+  ├─ npm run build:vite          # same chain as above: schema, shell, stageContent --to=both
+  ├─ node scripts/packageWeb.mjs
+  │    ├─ copy dist/            → release/web/quran-web-0.1.0/dist   (app + /content)
+  │    ├─ copy bin/serveWeb.mjs → …/bin
+  │    ├─ copy dev/contentMiddleware.mjs → …/dev   (so the dev-only path is not needed)
+  │    ├─ write start.cmd / start.command / start.sh + README.md
+  │    ├─ sanity-import the server it just wrote (a broken file fails the build)
+  │    └─ zip → release/web/quran-web-0.1.0.zip
+  └─ run it: node bin/serveWeb.mjs [--port=4173] [--host=127.0.0.1]
+```
+
+`serveWeb.mjs` has no dependencies and no build step, which is the whole reason a
+"cross-platform installer" here is three shell scripts and one archive rather
+than three installers: the only requirement on the user's machine is a Node
+runtime, and the same bytes start on Windows, macOS and Linux.
+
+What the server promises, in code:
+
+- binds `127.0.0.1` unless `--host` says otherwise — it is a local port, not a
+  host;
+- GET and HEAD only, everything else `405`;
+- every path goes through `safeRel()` + `resolveInside()`; anything that escapes
+  the served directory is `400`, and traversal in the URL is a `404` before it
+  reaches the filesystem;
+- `X-Content-Type-Options: nosniff` on all responses; `immutable` only for
+  hashed asset names; `no-cache` for `index.html`, the manifest, the service
+  worker and `content/` — so a re-packaged build is picked up on the next
+  navigation instead of being served from a stale cache.
+
+The app side of "installable" is `public/manifest.webmanifest` plus
+`public/sw.js`, registered only when the bundle is production *and* not inside
+Tauri (`desktop/src/main.tsx`). The worker is network-first for navigations and
+cache-first-then-fill for `/assets/*` and `/content/*`.
+
+### Verifying the web package
+
+The same bar as the installer, with two swaps forced by the different runtime:
+
+1. run the **packaged** bundle (`node bin/serveWeb.mjs`), not `vite dev` — the
+   dev shell has a middleware that hides half of what the server does;
+2. confirm the auto-import on first `ready()` reaches the counts in
+   `content/index.json`, and that `/me/content` names the origin's `/content`
+   directory as where they came from;
+3. confirm the badge says «وب» and the shell reports `web`, so no dev-only
+   affordance is reachable in a build someone downloads;
+4. **then kill the server process** and reload: the shell must come from the
+   service-worker cache, all 8 packs must re-import with their checksums still
+   verifying, and the user's rows must still be there. This is the web target's
+   equivalent of "network off" — there is no adapter to disable, so the server
+   dying is the test;
+5. drive a restore through `/me/backup` and reload the shell afterwards. Defect
+   14 in [`current-state.md`](current-state.md) is exactly this flow and nothing
+   else caught it;
+6. probe the server: `/content/../../package.json` → 404, `POST /` → 405, and no
+   request in the session leaves the origin.
+
+Taken on 2026-09-28 against `release/web/quran-web-0.1.0` (30.56 MiB unpacked,
+5.45 MiB zipped) served on `127.0.0.1:4173` and driven in headless Edge over CDP:
+items 1–6 pass — 114/6,236/83,665/18,708/1,313/1,732/8 after auto-import (the
+app's own report: 2,594 ms), 24 cache entries (9 content / 8 assets / 7 shell),
+the app fully usable with the server process stopped — home, a Persian query
+answered from the memory index, page 42 — 0 network failures, 0 non-local
+requests, no console errors. Not exercised: the browser's *install* prompt and a
+standalone window (the manifest is shipped and validated by the browser, but no
+install was completed), and `start.command` / `start.sh`, which only macOS and
+Linux can run.
+
 ## Verifying a package (not optional)
 
 A bundle is only done when the shipped path has been exercised:
@@ -124,6 +197,12 @@ the app's own `quran.db`; 0 non-local requests out of 1,404). Item 7 (uninstall
 cleanliness) has not been exercised yet.
 
 ## Notes for this machine
+
+`packageWeb.mjs` empties `release/web/quran-web-0.1.0/` before writing it, so a
+server still running from inside that directory makes the build fail with
+`EBUSY: resource busy or locked, rmdir …`. Windows locks a process' working
+directory; stop `serveWeb.mjs` first. The failure is loud and leaves no half
+package claiming to be one.
 
 Release builds here run out of memory while other projects' processes are alive
 (~0.5–1 GB free of 8 GB). `src-tauri/Cargo.toml` therefore keeps `lto = "thin"`

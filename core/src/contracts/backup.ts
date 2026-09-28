@@ -30,7 +30,7 @@ export interface BackupEnvelope {
   minReaderVersion: number;
   createdAt: string;
   /** App + platform that produced the file, purely informational. */
-  producedBy: { app: string; version: string; platform: 'desktop' | 'mobile' };
+  producedBy: { app: string; version: string; platform: 'desktop' | 'mobile' | 'web' };
   /** sha256 over the canonical JSON of `data`. */
   checksum: string;
   counts: Record<keyof BackupUserData, number>;

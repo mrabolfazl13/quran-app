@@ -286,6 +286,18 @@ function StepPanel({
   const revealedKey = verdict ? session.steps[stepIndex]?.verseKey ?? null : null;
   const expected = useVerseWords(revealedKey);
 
+  // Whether an audio track exists for this ayah is a database question, not a
+  // label. No audio pack is imported in this build, so the step has to say that
+  // instead of advertising a player it does not have.
+  const cueKind = probe.value?.probe?.cue.kind ?? '';
+  const cueVerse = probe.value?.verseKey ?? null;
+  const audioRows = useAsync(async () => {
+    if (cueKind !== 'audio' || cueVerse === null || !gateway) return null;
+    // `StepProbe.verseKey` is a plain string; the gateway wants the key form.
+    if (!/^\d+:\d+$/.test(cueVerse)) return null;
+    return (await gateway.audioFor(cueVerse as VerseKey)).length;
+  }, [cueKind, cueVerse, gateway]);
+
   async function submit(): Promise<void> {
     if (!facade || !gateway) return;
     const p = probe.value;
@@ -363,12 +375,25 @@ function StepPanel({
                   <div className="cue-box__kind rtl-iso">{cueLabel(tr, probeData.cue.kind)}</div>
                   {probeData.cue.kind === 'audio' ? (
                     <div className="rtl-iso muted">
-                      {tr('بستهٔ صوتی', 'audio pack')}: <span className="mono ltr-iso">{probeData.cue.text ?? '—'}</span>
-                      {' · '}
-                      <label className="row stack--tight" style={{ display: 'inline-flex' }}>
-                        <input type="checkbox" checked={usedAudio} onChange={(e) => setUsedAudio(e.target.checked)} />
-                        {tr('صوت را شنیدم', 'I listened to the audio')}
-                      </label>
+                      {audioRows.value === null || audioRows.status === 'loading' ? (
+                        <span>{tr('بررسی بستهٔ صوتی…', 'Checking the audio pack…')}</span>
+                      ) : audioRows.value === 0 ? (
+                        <span>
+                          {tr(
+                            'هیچ بستهٔ صوتی برای این آیه وارد نشده است؛ همین گام را بدون صوت بازیابی کنید.',
+                            'No audio track is imported for this ayah; recall this step without audio.',
+                          )}
+                        </span>
+                      ) : (
+                        <>
+                          {tr('بستهٔ صوتی', 'audio pack')}: <span className="mono ltr-iso">{probeData.cue.text ?? '—'}</span>
+                          {' · '}
+                          <label className="row stack--tight" style={{ display: 'inline-flex' }}>
+                            <input type="checkbox" checked={usedAudio} onChange={(e) => setUsedAudio(e.target.checked)} />
+                            {tr('صوت را شنیدم', 'I listened to the audio')}
+                          </label>
+                        </>
+                      )}
                     </div>
                   ) : probeData.cue.text ? (
                     <div className="cue-box__text quran-text" dir="rtl">{probeData.cue.text}</div>

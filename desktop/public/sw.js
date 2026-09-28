@@ -2,9 +2,11 @@
  * Service worker for the installed web build.
  *
  * "Offline" here is not a fallback: the app must keep working with the network
- * disabled and the local server not running. That is only true once every byte
- * the app can ask for is in the cache, so the install caches the shell and the
- * first import caches the packs.
+ * disabled and the local server not running. Nothing has to tell this worker
+ * about a file — every byte the app can ask for goes through the `fetch`
+ * handler below, which fills the cache as it serves it. The install step caches
+ * the shell so a first run has something to load; the packs enter the cache the
+ * first time the app reads them, which is the same request that imports them.
  *
  * Strategies, and why:
  *  - navigations: network-first. A machine that re-runs the installer must get
@@ -44,26 +46,6 @@ self.addEventListener('activate', (event) => {
       .then(() => self.clients.claim()),
   );
 });
-
-self.addEventListener('message', (event) => {
-  // The app calls this after a successful import so the packs it just read are
-  // guaranteed to be in the cache before anyone pulls the plug.
-  if (event.data && event.data.type === 'quran:cache-content') {
-    event.waitUntil(cacheAll(event.data.urls || []));
-  }
-});
-
-function cacheAll(urls) {
-  return caches.open(VERSION).then((cache) =>
-    Promise.all(
-      urls.map((u) =>
-        fetch(u)
-          .then((res) => (res && res.ok && cache.add(u)))
-          .catch(() => false),
-      ),
-    ),
-  );
-}
 
 self.addEventListener('fetch', (event) => {
   const req = event.request;

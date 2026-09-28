@@ -10,9 +10,12 @@ installer or is computed on the device.
 ## Where it stands
 
 Desktop (Tauri + React + TypeScript) is the first deliverable and is complete
-through the vertical slice; the local web build and the Android port follow.
-[`docs/current-state.md`](docs/current-state.md) is the live status page and is
-updated at every milestone — read it before trusting anything here.
+through the vertical slice. The same app runs as a **local web build**: one
+archive containing the bundle, the eight content packs and a dependency-free
+server, started by a script per platform and usable with the server stopped.
+The Android port follows. [`docs/current-state.md`](docs/current-state.md) is
+the live status page and is updated at every milestone — read it before trusting
+anything here.
 
 ## Hard rules
 
@@ -63,7 +66,19 @@ npm run content:validate    # integrity gate, exits non-zero on failure
 npm run desktop:dev         # vite dev server (browser shell, IndexedDB gateway)
 npm run desktop:tauri dev   # real Tauri window over SQLite
 npm run desktop:tauri build # Windows installer
+npm run desktop:web:package # local web build → desktop/release/web/…  + .zip
 ```
+
+The packaged web build runs from the archive itself, with no install step:
+
+```bash
+cd desktop/release/web/quran-web-0.1.0
+node bin/serveWeb.mjs            # → http://127.0.0.1:4173
+```
+
+or `start.cmd` / `start.command` / `start.sh` from that directory. `serveWeb.mjs`
+binds `127.0.0.1`, answers GET/HEAD only and refuses any path that resolves
+outside its own directory.
 
 `npm run desktop:tauri build` executes `desktop/scripts/syncSchema.mjs` (embeds
 `core/src/contracts/db.sql`) and `desktop/scripts/stageContent.mjs` (copies the

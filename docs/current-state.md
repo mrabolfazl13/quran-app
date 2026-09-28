@@ -7,8 +7,17 @@ Updated 2026-09-28. Never record progress here that is not true of the tree.
 Desktop (delivery order step 1 of `AGENTS.md`) is feature-complete and verified
 through the installed app: the Windows installer builds, installs, imports all 8
 packs on a never-seen profile, and a backup it writes can be restored again
-(that last round trip was broken until this round — see the defect table). The
-web target (step 2) has not been started. Android is phase 2.
+(that last round trip was broken until that round — see the defect table).
+Web (step 2) now builds, packages and is verified on its own shipped path — a
+staged bundle served by `bin/serveWeb.mjs` on a local port, with no Tauri:
+content auto-imports, the user's rows live in IndexedDB, and the app keeps
+working with the server process killed. Android is phase 2.
+
+**One caveat about which binary is which.** The four fixes listed under "closed
+this round" are in the working tree and in the web package on disk, which is the
+build the web evidence below was produced from. The installed desktop app on
+this machine is still `83cfc26`'s installer — it must be rebuilt before those
+changes are claimed at desktop level.
 
 ## Completed
 
@@ -33,6 +42,13 @@ web target (step 2) has not been started. Android is phase 2.
   backup + restore + settings layer, and the design system in `ui/` + `tokens.css`.
 - **Local AI verdict.** Measured, then declined: no model ships. See
   [`local-ai.md`](local-ai.md).
+- **Web target** (`npm run desktop:web:package` → `desktop/release/web/`). The
+  same React app and the same `@quran/core`, served by a dependency-free Node
+  server on a local port and packaged as one archive with a start script per
+  platform. It persists in IndexedDB — the gateway was widened to a third shell
+  rather than forked, so no engine logic is duplicated — and the packs it imports
+  are the same validated bytes the desktop installer bundles.
+  See [`packaging.md`](packaging.md).
 
 ## Verified earlier in this phase (UI gate, browser dev shell)
 
@@ -58,7 +74,56 @@ web target (step 2) has not been started. Android is phase 2.
   number is the device-level one below — 8.0 s on first run, 7.6 s by the app's
   own report — and the two are not the same work.
 
-## Verified this round (device-level, installed app, network left on)
+## Verified this round (web target, packaged build served over HTTP)
+
+`npm run desktop:web:package` → `desktop/release/web/quran-web-0.1.0/`
+(32,045,739 B on disk) and `quran-web-0.1.0.zip` (5,712,903 B): `dist/`,
+`bin/serveWeb.mjs`, `dev/contentMiddleware.mjs`, the 8 packs under
+`dist/content`, and `start.cmd` / `start.command` / `start.sh` so the same
+archive starts on Windows, macOS and Linux. Served by
+`node bin/serveWeb.mjs` on `127.0.0.1:4173` and driven in headless Edge over
+CDP — this is the packaged bundle, not `vite dev`.
+
+- **Auto-import on the shipped path**: first `ready()` pulled all 8 packs from
+  this origin and `/me/content` read 114 surahs / 6,236 ayahs / 83,665 words /
+  18,708 translations / 1,313 tafsirs / 1,732 similar / 8 packs — the same
+  numbers `content/index.json` carries, and the screen names the origin directory
+  `/content` as where they came from. The app's own report for that import:
+  **2,594 ms**; the content requests span 640 ms → 3,008 ms after navigation
+  (see [`performance.md`](performance.md)).
+- **Modes are now three, not two**: the shell reports `web` and the header badge
+  says «وب»; `isShippedPath` is true for it, so no dev-only affordance leaks into
+  a build a user can download. Forcing `?shell=dev` still gives the labelled dev
+  shell.
+- **Still works with the server dead**: with the service-worker cache warm,
+  `serveWeb.mjs` was killed and the origin reloaded — a real navigation to a
+  port with nothing listening. The shell came from cache, all 8 packs re-imported
+  from cache with their checksums still verifying, the user's rows were intact, a
+  Persian query («نماز») answered from `memory-index` with 50 verse keys on
+  screen, and page 42 rendered. Cache inventory 24 entries (9 content / 8 assets
+  / 7 shell); **0 network failures, 0 exceptions, 0 non-local requests**.
+  Repeated after this round's `sw.js` change, on a freshly packaged bundle — the
+  worker has no push message any more; the fetch handler fills the cache as it
+  serves.
+- **A restore survives the reload the restore itself triggers**: bookmark + dark
+  theme + a daily plan restored through `/me/backup` were readable from
+  IndexedDB *immediately* after the success message and again after the shell
+  reloaded — 1 bookmark, same verse key, theme still dark.
+- **Hostile input**: `/content/../../package.json` → 404, `POST /` → 405, an
+  unknown route renders the app's own «چنین صفحه‌ای وجود ندارد» screen rather than
+  a blank page, and every request observed in the session was same-origin.
+- **UI gate on this target**: 11 routes at 1280×720 with no horizontal overflow
+  and no 404 screen; dark mode reached through the header control (one click
+  from `system`) — body contrast 13.2:1, `lang="fa" dir="rtl"` on every route,
+  Arabic with full vocalisation on the mushaf page unclipped in both themes.
+- **Repackaging while the app runs is refused by Windows, not by the script**:
+  `packageWeb.mjs` clears its output directory first, and if
+  `node bin/serveWeb.mjs` is still running from inside it the build dies with
+  `EBUSY: resource busy or locked, rmdir …\quran-web-0.1.0`. Stop the server
+  first; the failure is loud and nothing partial is left claiming to be a
+  package.
+
+## Verified last round (device-level, installed app, network left on)
 
 Reinstalled `Quran Platform_0.1.0_x64-setup.exe` (8,862,514 B) over this
 machine and drove the shipped window through WebView2 CDP on port 9777.
@@ -93,7 +158,22 @@ machine and drove the shipped window through WebView2 CDP on port 9777.
   and a `tables` member gets «این فایل پذیرفته نشد — 4 ایراد؛ نخستین:
   $.producedBy.platform…»; `bookmark` count stayed 0 through both attempts.
 
-## Defects closed this round (found on the installed app, not in a test)
+## Defects closed this round (found on the packaged web build)
+
+| # | Defect | Where |
+| --- | --- | --- |
+| 12 | The web build described itself as a dev shell: the content-health screen printed the "held in memory, no FTS5" note on a build a user downloads and runs, because the note was a single constant rather than a property of the shell | `MemorySearchService` constructor call in `gateway/devGateway.ts` |
+| 13 | The recall session advertised «پخش صوت (بستهٔ صوتی نصب‌شده)» and offered a "I heard the audio" checkbox on a build where `content:validate` reports `صوت ۰` — a control for a feature no imported pack supports. The step now asks the gateway whether a track exists for that ayah and says so when none does | `screens/hifz/SessionRunnerScreen.tsx`, label in `screens/hifz/shared.tsx` |
+| 14 | **A restore silently did not persist.** `importBackup()` ended in the same debounced `touch()` as an ordinary edit, and the backup screen reloads the shell as soon as a restore reports success — the 350 ms timer died with the page and the restored rows never reached IndexedDB. The success message was a lie. The save is now awaited and the timer cleared before it returns | `importBackup` in `gateway/devGateway.ts`, pinned by `tests/integration/dev-gateway-browser-restore.test.ts` |
+| 15 | A backup written by a browser claimed `platform: "desktop"`, and the validator had no `web` value at all — so the honest file would have been refused by the enum while the dishonest one passed | `contracts/backup.ts`, `backup/export.ts`, `backup/validate.ts` (enum now `desktop \| mobile \| web`; unknown values still `bad-value`) |
+
+Defect 14 is the one worth the emphasis: it was invisible in every earlier round
+because the dev shell was reloaded by hand, minutes later, long after the timer
+had fired. Reverting the fix makes the new test fail (1 failed / 2 passed);
+restoring it makes the suite pass, so the test pins the defect rather than the
+current code.
+
+## Defects closed last round (found on the installed app, not in a test)
 
 | # | Defect | Where |
 | --- | --- | --- |
@@ -153,9 +233,9 @@ Run from the repository root (see [`testing.md`](testing.md)):
 
 | Command | Result on 2026-09-28 |
 | --- | --- |
-| `npm run test:core` | 24 files, **514 passed / 2 skipped** (4.7 s) |
+| `npm run test:core` | 24 files, **516 passed / 2 skipped** (8.0 s) |
 | `npm run test:desktop` | 5 files, **29 passed** (4.3 s) |
-| `npm run test:integration` | 6 files, **83 passed** (18.3 s) — includes the new backup round trip and the statement-queue suite |
+| `npm run test:integration` | 7 files, **86 passed** (37.0 s) — includes the new browser-restore suite |
 | `cd desktop && npx tsc --noEmit` | clean |
 | `npm run content:validate` | passes with 5 warnings (the Ibn Kathir empty rows `docs/tafsir-system.md` already explains) |
 
@@ -170,11 +250,17 @@ Run from the repository root (see [`testing.md`](testing.md)):
    architect with every consumer updated in the same round.
 3. Uninstall cleanliness: run the NSIS uninstaller and record what survives in
    `%LOCALAPPDATA%` and `%APPDATA%`.
-4. Web target: serve the same app on a local HTTP port, persist without Tauri
-   (browser SQLite over OPFS applying `core/src/contracts/db.sql` verbatim),
-   install as a PWA, ship a cross-platform installer. The dev shell's
-   memory-only content store must become persistent for this target.
-5. Remove the now-dead Rust command `sha256_text` (`src-tauri/src/commands.rs`,
+4. Web target, what is genuinely left: the PWA **install** flow is unexercised
+   (the manifest and service worker are shipped and offline-from-cache is proven,
+   but no install prompt / standalone window has been driven), and
+   `start.command` / `start.sh` have never run — only the Windows path has been
+   executed on this machine. The service worker's unused `quran:cache-content`
+   listener was deleted this round (packs reach the cache through its fetch
+   handler, which is what the offline evidence shows), so the web package must be
+   rebuilt before the shipped `sw.js` matches the tree.
+5. Rebuild the desktop installer so the shipped `.exe` carries defects 12–15's
+   fixes; the current install on this machine predates them.
+6. Remove the now-dead Rust command `sha256_text` (`src-tauri/src/commands.rs`,
    registered in `lib.rs`): nothing calls it since backups seal through core.
    Least privilege (§47) says it should not stay registered.
-6. Re-run `npm run content:build` + `stage:content` before any release build.
+7. Re-run `npm run content:build` + `stage:content` before any release build.

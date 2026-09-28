@@ -38,7 +38,7 @@ export const DATA_KEYS: readonly (keyof BackupUserData)[] = [
 export interface BackupExportMeta {
   app: string;
   version: string;
-  platform: 'desktop' | 'mobile';
+  platform: 'desktop' | 'mobile' | 'web';
   /** ISO timestamp; defaults to the current time. Excluded from the checksum. */
   createdAt?: string;
   /** Defaults to `schemaVersion`; a file must never claim it needs a newer reader. */

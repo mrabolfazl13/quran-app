@@ -155,7 +155,7 @@ const CUES: Record<string, { fa: string; en: string }> = {
   'previous-ayah-ending': { fa: 'پایان آیهٔ پیش', en: 'ending of the previous ayah' },
   reverse: { fa: 'واژهٔ پایانی (شروع معکوس)', en: 'the last word (reverse start)' },
   'random-span-start-word': { fa: 'واژهٔ نخستِ بازهٔ هدف', en: 'first word of the target span' },
-  audio: { fa: 'پخش صوت (بستهٔ صوتی نصب‌شده)', en: 'audio cue (installed audio pack)' },
+  audio: { fa: 'کاوش صوتی', en: 'audio cue' },
   'free-recall': { fa: 'بدون نشانه — یادآوری آزاد', en: 'no cue — free recall' },
   sequence: { fa: 'توالی آیات', en: 'the ayah sequence' },
 };

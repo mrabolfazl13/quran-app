@@ -231,6 +231,12 @@ export class DevGateway implements DataGateway {
     this.searchService = new MemorySearchService(
       () => this.searchDocs,
       () => this.content.ayahs,
+      // The web build is a shipped path, so it must not describe itself as a dev
+      // shell. The index really is the same one — same `matchKey` space, held in
+      // memory — what differs is who is serving the bytes it was built from.
+      this.shell === 'web'
+        ? 'memory index over the packs served by this origin — same matchKey space as the desktop app'
+        : undefined,
     );
   }
 
@@ -729,9 +735,11 @@ export class DevGateway implements DataGateway {
     // Sealed by core, exactly as the installed app does it: a dev-shell file
     // and a `.quranbak` from the Tauri build must verify with one rule.
     return buildEnvelope(data, {
-      app: 'quran-desktop',
+      // A browser wrote this file, so a browser is what it reports. `app` is the
+      // only place the two shells differ — the sealing rule is identical.
+      app: this.shell === 'web' ? 'quran-web' : 'quran-dev-shell',
       version: '0.1.0',
-      platform: 'desktop',
+      platform: 'web',
       minReaderVersion: 1,
     }).envelope;
   }
@@ -764,7 +772,14 @@ export class DevGateway implements DataGateway {
       sessions: (envelope.data.sessions as HifzSession[]) ?? [],
       plans: planRowsFromEnvelope(envelope.data.dailyPlans ?? []),
     };
-    this.touch();
+    // Awaited, never debounced: the backup screen reloads the shell as soon as a
+    // restore reports success, and a `touch()` timer still in flight when that
+    // happens dies with the page — the restored rows would never reach IndexedDB.
+    if (this.saveTimer !== null) {
+      window.clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+    }
+    await idbSave('v1', this.user);
     return { ok: true, from: envelope.schemaVersion, to: BACKUP_SCHEMA_VERSION, warnings: [] };
   }
 
