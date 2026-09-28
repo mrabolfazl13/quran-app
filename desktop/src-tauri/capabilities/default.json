@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Least-privilege capabilities for the main window: core window APIs plus SQLite access in the Rust layer. No shell, no arbitrary filesystem, no HTTP, no global CSP escape. Pack/backup file access goes through the argument-validated commands in src-tauri/src/commands.rs.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "sql:allow-load",
+    "sql:allow-execute",
+    "sql:allow-select",
+    "sql:allow-close"
+  ]
+}

@@ -14,12 +14,17 @@
  *     divisions text byte-identical to bulk uthmani text.
  *  4. Surah ayah_count == actual verse count (chapters vs uthmani vs divisions).
  *  5. Word data: word-token count/text equality vs tokenizeWords(); reconstruction
- *     of the ayah text from word-type entries checked byte-for-byte; end marks flagged.
+ *     of the ayah text from word-type entries checked byte-for-byte; end marks flagged;
+ *     every word row places itself on the Madani mushaf grid (`page_number` 1..604,
+ *     `line_number` 1..15) and the corpus covers all 604 pages.
  *  6. Translation alignment: bulk arrays (no verse_key) proven against
  *     /verses/by_chapter/{c}?translations={id} for 12 sample chapters.
  *  7. Tafsir (when fetched): verse_key validity, non-empty text, coverage.
  *  8. Post-build: pack manifests (checksum/bytes/records) + payload text is
- *     byte-identical to raw provider text.
+ *     byte-identical to raw provider text, and the word-data payload's mushaf
+ *     `pageNumber`/`lineNumber` equal the raw row's `page_number`/`line_number`
+ *     row by row and page by page (this is what makes the 604-page grid
+ *     rebuildable offline from shipped packs only).
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -53,6 +58,12 @@ const PAGE_COUNT = 604;
 const RUB_COUNT = 240;
 const SURAH_COUNT = 114;
 const AYAH_COUNT = 6236;
+/**
+ * Printed height of the Madani mushaf grid. Measured over all 83 665 provider
+ * word rows: the highest `line_number` is 15 and 488 of 604 pages use all 15.
+ * Same constant the layout engine ships (`core/src/mushaf/layout.ts`).
+ */
+const MAX_MUSHAF_LINE = 15;
 
 interface RawVerse {
   id: number;
@@ -127,6 +138,8 @@ export async function validateRaw(): Promise<ValidationResult> {
   const keysByChapter = new Map<number, number[]>();
   const keyToText = new Map<string, string>();
   const keyToId = new Map<string, number>();
+  /** `verse_key` → the ayah's own mushaf page, from the divisions rows. */
+  const keyToPage = new Map<string, number>();
   let prevId = 0;
   for (const v of uthmani) {
     if (ids.has(v.id)) fail(`duplicate verse id ${v.id} (${v.verse_key})`);
@@ -196,6 +209,7 @@ export async function validateRaw(): Promise<ValidationResult> {
         if (!inRange(v.juz_number, 1, JUZ_COUNT)) fail(`juz out of 1..${JUZ_COUNT} at ${key}: ${JSON.stringify(v.juz_number)}`);
         if (!inRange(v.hizb_number, 1, HIZB_COUNT)) fail(`hizb out of 1..${HIZB_COUNT} at ${key}: ${JSON.stringify(v.hizb_number)}`);
         if (!inRange(v.page_number, 1, PAGE_COUNT)) fail(`page out of 1..${PAGE_COUNT} at ${key}: ${JSON.stringify(v.page_number)}`);
+        else keyToPage.set(key, v.page_number);
         if (!inRange(v.rub_el_hizb_number, 1, RUB_COUNT)) fail(`rub out of 1..${RUB_COUNT} at ${key}: ${JSON.stringify(v.rub_el_hizb_number)}`);
         for (const f of ['ruku_number', 'manzil_number', 'sajdah_number'] as const) {
           const x = v[f];
@@ -228,6 +242,13 @@ export async function validateRaw(): Promise<ValidationResult> {
     let byteExact = 0;
     let markLevel = 0;
     let quirkHits = 0;
+    // mushaf grid metadata (`page_number` / `line_number` on every word row)
+    let mushafRows = 0;
+    const mushafPages = new Set<number>();
+    let mushafLineMax = 0;
+    let mushafBadRows = 0;
+    /** Verses whose word rows name a page other than the ayah's own page. */
+    let anchorDisagreement = 0;
     for (const c of ALL_CHAPTERS) {
       const body = readRawJson<any>(`quran-com/words-${c}.json`);
       for (const v of body.verses as any[]) {
@@ -242,6 +263,35 @@ export async function validateRaw(): Promise<ValidationResult> {
         if (!wordType.length) fail(`no word-type entries at ${key}`);
         endMarks += endType.length;
         wordRows += words.length;
+        // Mushaf grid metadata: the reader rebuilds the 604-page grid offline
+        // from exactly these two numbers on every row (word tokens AND the
+        // end-of-ayah mark), so a missing or out-of-grid value is an error.
+        const declaredPages = new Set<number>();
+        for (const w of words) {
+          mushafRows++;
+          const pageOk =
+            typeof w.page_number === 'number' && Number.isInteger(w.page_number) &&
+            w.page_number >= 1 && w.page_number <= PAGE_COUNT;
+          const lineOk =
+            typeof w.line_number === 'number' && Number.isInteger(w.line_number) &&
+            w.line_number >= 1 && w.line_number <= MAX_MUSHAF_LINE;
+          if (!pageOk || !lineOk) {
+            mushafBadRows++;
+            if (mushafBadRows <= 20) {
+              fail(
+                `mushaf metadata at ${key} word id ${w.id}: page_number=${JSON.stringify(w.page_number)} ` +
+                  `(need integer 1..${PAGE_COUNT}), line_number=${JSON.stringify(w.line_number)} ` +
+                  `(need integer 1..${MAX_MUSHAF_LINE}) — placement is never guessed`,
+              );
+            }
+            continue;
+          }
+          mushafPages.add(w.page_number);
+          if (w.line_number > mushafLineMax) mushafLineMax = w.line_number;
+          declaredPages.add(w.page_number);
+        }
+        const anchorPage = keyToPage.get(key);
+        if (anchorPage !== undefined && [...declaredPages].some((p) => p !== anchorPage)) anchorDisagreement++;
         // positions must strictly ascend in provider order
         for (let i = 1; i < words.length; i++) {
           if (!(words[i]!.position > words[i - 1]!.position)) fail(`word positions not ascending at ${key}: ${words[i - 1]!.position} -> ${words[i]!.position}`);
@@ -293,6 +343,25 @@ export async function validateRaw(): Promise<ValidationResult> {
     }
     stats.wordRows = wordRows;
     stats.endOfAyahMarks = endMarks;
+    stats.mushafRowsChecked = mushafRows;
+    stats.mushafPagesDistinct = mushafPages.size;
+    stats.mushafLineMax = mushafLineMax;
+    stats.mushafBadRows = mushafBadRows;
+    stats.wordPageAnchorDisagreements = anchorDisagreement;
+    if (mushafPages.size !== PAGE_COUNT) {
+      fail(`mushaf metadata covers ${mushafPages.size} distinct pages, expected all ${PAGE_COUNT}`);
+    }
+    if (mushafLineMax !== MAX_MUSHAF_LINE) {
+      warnings.push(`highest line_number observed across the word rows is ${mushafLineMax}, not the ${MAX_MUSHAF_LINE}-line grid`);
+    }
+    if (anchorDisagreement) {
+      warnings.push(
+        `${anchorDisagreement} verses have word rows naming a page other than their own division page ` +
+          `(the provider's rows predate parts of the mushaf re-cut). Kept verbatim in the pack; ` +
+          `core/src/mushaf/layout.ts anchors them on the ayah page and reports each move as a ` +
+          `word-page-corrected diagnostic.`,
+      );
+    }
     stats.rebuildChecked = rebuildChecked;
     stats.rebuildByteExact = byteExact;
     stats.rebuildOrnamentalMarkDiff = markLevel;
@@ -415,14 +484,21 @@ export function validatePacks(): ValidationResult | null {
   const keyText = new Map(uthmani.map((v) => [v.verse_key, v.text_uthmani]));
   const orderedKeys = uthmani.map((v) => v.verse_key);
   const keyOrderIndex = new Map(orderedKeys.map((k, i) => [k, i]));
-  // word-id -> raw word text (word text is byte-faithful to the WORD endpoint,
-  // not to the verse text)
-  const wordText = new Map<number, string>();
+  // word-id -> raw word row facts (word text is byte-faithful to the WORD
+  // endpoint, not to the verse text; page/line are the mushaf grid metadata)
+  interface RawWordFacts { text: string; page: number | null; line: number | null }
+  const wordText = new Map<number, RawWordFacts>();
   if (rawExists('quran-com/words-1.json')) {
     for (const c of ALL_CHAPTERS) {
       if (!rawExists(`quran-com/words-${c}.json`)) continue;
       for (const v of readRawJson<any>(`quran-com/words-${c}.json`).verses) {
-        for (const w of (v.words ?? []) as any[]) wordText.set(w.id, String(w.text_uthmani));
+        for (const w of (v.words ?? []) as any[]) {
+          wordText.set(w.id, {
+            text: String(w.text_uthmani),
+            page: typeof w.page_number === 'number' ? w.page_number : null,
+            line: typeof w.line_number === 'number' ? w.line_number : null,
+          });
+        }
       }
     }
   }
@@ -440,6 +516,8 @@ export function validatePacks(): ValidationResult | null {
     const lines = buf.toString('utf8').split('\n').filter((l) => l.trim());
     if (lines.length !== pack.recordCount) errors.push(`pack ${pack.id}: recordCount ${pack.recordCount} != payload lines ${lines.length}`);
     let byteChecked = 0;
+    let mushafErrors = 0;
+    const packMushafPages = new Set<number>();
     const tafsirRaw = new Map<string, Set<string>>();
     if (pack.kind === 'tafsir') {
       const rid = pack.id === 'tafsir-ar-muyassar' ? 16 : 169;
@@ -463,8 +541,26 @@ export function validatePacks(): ValidationResult | null {
           errors.push(`PACK CORRUPTION: quran-core ${r.verseKey} textUthmaniSimple is not byte-identical to raw simple text`);
         byteChecked++;
       } else if (pack.id === 'word-data') {
-        if (wordText.get(r.id) !== r.textUthmani)
+        const raw = wordText.get(r.id);
+        if (raw?.text !== r.textUthmani)
           errors.push(`PACK CORRUPTION: word-data id ${r.id} (${r.verseKey} pos ${r.position}) is not byte-identical to raw provider word text`);
+        // The mushaf columns must be the provider's, value for value: this is
+        // what lets the offline reader rebuild the 604-page grid from packs.
+        if (raw && (r.pageNumber !== raw.page || !Number.isInteger(r.pageNumber))) {
+          mushafErrors++;
+          if (mushafErrors <= 20) {
+            errors.push(`PACK CORRUPTION: word-data id ${r.id} (${r.verseKey} pos ${r.position}) carries pageNumber ${JSON.stringify(r.pageNumber)} but the raw row says ${JSON.stringify(raw.page)}`);
+          }
+        }
+        if (raw && (r.lineNumber !== raw.line || !Number.isInteger(r.lineNumber))) {
+          mushafErrors++;
+          if (mushafErrors <= 20) {
+            errors.push(`PACK CORRUPTION: word-data id ${r.id} (${r.verseKey} pos ${r.position}) carries lineNumber ${JSON.stringify(r.lineNumber)} but the raw row says ${JSON.stringify(raw.line)}`);
+          }
+        }
+        if (Number.isInteger(r.pageNumber) && r.pageNumber >= 1 && r.pageNumber <= PAGE_COUNT) {
+          packMushafPages.add(r.pageNumber as number);
+        }
         byteChecked++;
       } else if (pack.kind === 'translation' && trRaw) {
         const idx = keyOrderIndex.get(String(r.verseKey)) ?? -1;
@@ -479,6 +575,13 @@ export function validatePacks(): ValidationResult | null {
     }
     stats[`${pack.id}_records`] = lines.length;
     stats[`${pack.id}_byteChecked`] = byteChecked;
+    if (pack.id === 'word-data') {
+      stats.word_data_mushafPages = packMushafPages.size;
+      stats.word_data_mushafColumnErrors = mushafErrors;
+      if (packMushafPages.size !== PAGE_COUNT) {
+        errors.push(`word-data pack covers ${packMushafPages.size} mushaf pages, expected all ${PAGE_COUNT} — the reader could not rebuild the grid offline`);
+      }
+    }
   }
   stats.indexPacks = index.packs.length;
   return { errors, warnings, stats };

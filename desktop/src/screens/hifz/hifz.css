@@ -1,0 +1,167 @@
+/* Hifz-area layout. Colours and type come from styles/tokens.css only. */
+
+.hifz-columns {
+  display: grid;
+  gap: var(--sp-4);
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.hifz-kv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--sp-1) var(--sp-3);
+  align-items: baseline;
+}
+.hifz-kv dt {
+  color: var(--text-muted);
+  font-size: var(--fs-300);
+}
+.hifz-kv dd {
+  margin: 0;
+}
+
+/* ---- session runner ---- */
+.hifz-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.hifz-step {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--radius-1);
+  border: 1px solid transparent;
+  font-size: var(--fs-300);
+}
+.hifz-step--current {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.hifz-step--done .hifz-step__mark {
+  color: var(--state-ok);
+}
+.hifz-step__mark {
+  min-width: 1.4em;
+  text-align: center;
+  color: var(--text-faint);
+}
+
+.recite-input {
+  direction: rtl;
+  text-align: right;
+  font-family: 'Amiri Quran', 'Amiri', serif;
+  font-size: var(--mushaf-size);
+  line-height: var(--lh-quran);
+  min-height: 120px;
+  width: 100%;
+}
+
+.cue-box {
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-1);
+  background: var(--surface-0);
+}
+.cue-box__kind {
+  font-size: var(--fs-200);
+  color: var(--text-muted);
+}
+.cue-box__text {
+  font-size: var(--mushaf-size);
+}
+
+/* Word alignment over the stored attempt — each token keeps its own mark. */
+.alignment {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  padding: var(--sp-2);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-1);
+}
+.alignment .word {
+  padding: 0 0.15em;
+  border-radius: 3px;
+}
+.alignment__inserts {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  align-items: center;
+}
+
+/* ---- items / fingerprint ---- */
+.fp-grid {
+  display: grid;
+  gap: var(--sp-4);
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+.disclosure {
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-1);
+  padding: var(--sp-2) var(--sp-3);
+}
+.disclosure summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: var(--fs-300);
+  min-height: var(--inline-target);
+}
+
+.item-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--hairline);
+}
+.item-row:last-child {
+  border-bottom: none;
+}
+.item-row__grow {
+  flex: 1 1 auto;
+  min-width: 160px;
+}
+.item-row-wrap {
+  border-bottom: 1px solid var(--hairline);
+  padding-bottom: var(--sp-2);
+}
+.item-row-wrap:last-child {
+  border-bottom: none;
+}
+
+/* ---- sparkline (real attempt rows only) ---- */
+.spark {
+  display: inline-block;
+  vertical-align: middle;
+}
+.spark polyline,
+.spark circle {
+  stroke: var(--accent);
+  fill: none;
+  stroke-width: 1.5;
+}
+.spark circle {
+  fill: var(--accent);
+}
+.spark .spark__baseline {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+
+/* Persian/Arabic mixed runs isolate their own direction. */
+.rtl-iso {
+  unicode-bidi: isolate;
+  direction: rtl;
+}
+.ltr-iso {
+  unicode-bidi: isolate;
+  direction: ltr;
+}

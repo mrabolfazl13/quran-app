@@ -72,10 +72,23 @@ CREATE INDEX ayah_page_idx ON ayah(page);
 CREATE INDEX ayah_juz_idx ON ayah(juz);
 CREATE INDEX ayah_hizb_idx ON ayah(hizb);
 
+-- Madani mushaf placement, straight from the provider word rows (never
+-- derived at runtime, never guessed): `page_number` 1..604 and `line_number`
+-- 1..15 are what the layout engine in `core/src/mushaf/` needs to rebuild the
+-- 604-page grid offline. Both are NOT NULL because every provider word row
+-- carries both — a row without them is a content-pipeline failure, so the
+-- import stops rather than defaulting to a page.
+-- Schema version stays 1: v1 has not shipped, so these columns were added to
+-- the v1 DDL instead of bumping it. A database created before 2026-09-28 has no
+-- such columns; `ayah_word` is derived content data, so deleting that file (or
+-- reimporting after `ALTER TABLE ... ADD COLUMN`) rebuilds it. Backup/user data
+-- is untouched by either path.
 CREATE TABLE ayah_word (
   id INTEGER PRIMARY KEY,
   verse_key TEXT NOT NULL REFERENCES ayah(verse_key),
   position INTEGER NOT NULL,
+  page_number INTEGER NOT NULL,
+  line_number INTEGER NOT NULL,
   text_uthmani TEXT NOT NULL,
   translation_en TEXT,
   transliteration TEXT,
@@ -85,6 +98,7 @@ CREATE TABLE ayah_word (
   normalized TEXT NOT NULL
 );
 CREATE UNIQUE INDEX ayah_word_pos_idx ON ayah_word(verse_key, position);
+CREATE INDEX ayah_word_page_idx ON ayah_word(page_number, line_number);
 
 CREATE TABLE translation (
   verse_key TEXT NOT NULL REFERENCES ayah(verse_key),

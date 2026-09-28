@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "builtAt": "2026-09-27T22:28:38.206Z",
+  "builtAt": "2026-09-27T23:46:40.803Z",
   "packs": [
     {
       "id": "quran-core",
@@ -148,7 +148,7 @@
         "verseKeysFrom": "1:1",
         "verseKeysTo": "114:6"
       },
-      "generatedAt": "2026-09-27T22:28:35.518Z",
+      "generatedAt": "2026-09-27T23:46:38.825Z",
       "generator": "@quran/content/src/build.ts v0.1.0"
     },
     {
@@ -157,7 +157,7 @@
       "version": "1.0.0",
       "schemaVersion": 1,
       "language": "ar",
-      "title": "Word-by-word Uthmani text with English glosses and transliteration",
+      "title": "Word-by-word Uthmani text with Madani mushaf page/line placement, English glosses and transliteration",
       "source": "https://api.quran.com/api/v4",
       "license": {
         "spdx": null,
@@ -174,8 +174,8 @@
         "creditLine": "Word-by-word data from Quran.com (Quran Foundation); Qur’an word text: King Fahd Complex, Madinah Mushaf.",
         "retrievedAt": "2026-09-27T21:48:42.210Z"
       },
-      "checksum": "0e90938058e0ca6d87152752249cd85b9a5a25609defc5240f2980a9f6fb6d81",
-      "payloadBytes": 15767279,
+      "checksum": "8758734b3f42a33a09ab23d79f5e2c4c58ca168d11e6da85c736353e0b409d87",
+      "payloadBytes": 18463718,
       "recordCount": 83665,
       "coverage": {
         "chapters": [
@@ -297,7 +297,7 @@
         "verseKeysFrom": "1:1",
         "verseKeysTo": "114:6"
       },
-      "generatedAt": "2026-09-27T22:28:35.604Z",
+      "generatedAt": "2026-09-27T23:46:38.952Z",
       "generator": "@quran/content/src/build.ts v0.1.0"
     },
     {
@@ -446,7 +446,7 @@
         "verseKeysFrom": "1:1",
         "verseKeysTo": "114:6"
       },
-      "generatedAt": "2026-09-27T22:28:35.343Z",
+      "generatedAt": "2026-09-27T23:46:38.492Z",
       "generator": "@quran/content/src/build.ts v0.1.0"
     },
     {
@@ -595,7 +595,7 @@
         "verseKeysFrom": "1:1",
         "verseKeysTo": "114:6"
       },
-      "generatedAt": "2026-09-27T22:28:35.372Z",
+      "generatedAt": "2026-09-27T23:46:38.567Z",
       "generator": "@quran/content/src/build.ts v0.1.0"
     },
     {
@@ -744,7 +744,7 @@
         "verseKeysFrom": "1:1",
         "verseKeysTo": "114:6"
       },
-      "generatedAt": "2026-09-27T22:28:35.405Z",
+      "generatedAt": "2026-09-27T23:46:38.602Z",
       "generator": "@quran/content/src/build.ts v0.1.0"
     },
     {
@@ -893,7 +893,7 @@
         "verseKeysFrom": "1:1",
         "verseKeysTo": "114:6"
       },
-      "generatedAt": "2026-09-27T22:28:35.450Z",
+      "generatedAt": "2026-09-27T23:46:38.718Z",
       "generator": "@quran/content/src/build.ts v0.1.0"
     },
     {
@@ -1042,7 +1042,7 @@
         "verseKeysFrom": "1:1",
         "verseKeysTo": "114:6"
       },
-      "generatedAt": "2026-09-27T22:28:35.498Z",
+      "generatedAt": "2026-09-27T23:46:38.795Z",
       "generator": "@quran/content/src/build.ts v0.1.0"
     }
   ]

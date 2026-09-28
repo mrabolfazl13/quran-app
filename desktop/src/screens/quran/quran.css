@@ -1,0 +1,382 @@
+/* Reader geometry for the Quran area. Colours, radii and type steps come from
+   styles/tokens.css only; direction always uses logical properties because the
+   chrome is RTL by default and switches to LTR at runtime. */
+
+/* ------------------------------------------------------------- surah index */
+.surahtools {
+  align-items: flex-end;
+}
+.surahtools .field {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.surahlist {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.surahrow {
+  display: grid;
+  grid-template-columns: 3.2ch minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2);
+  background: var(--surface-1);
+}
+.surahrow:hover {
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+.surahrow__number {
+  color: var(--text-faint);
+  font-size: var(--fs-300);
+  text-align: center;
+}
+.surahrow__link {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+.surahrow__arabic {
+  font-size: var(--arabic-size);
+  color: var(--text-strong);
+}
+.surahrow__translit {
+  font-size: var(--fs-500);
+}
+.surahrow__meaning {
+  font-size: var(--fs-200);
+}
+.surahrow__meta {
+  gap: var(--sp-2);
+  font-size: var(--fs-200);
+  justify-content: flex-end;
+}
+.surahrow__links {
+  grid-column: 2 / -1;
+  gap: var(--sp-2);
+}
+
+/* -------------------------------------------------------------- reader body */
+.surahhead {
+  gap: var(--sp-3);
+}
+.surahhead__arabic {
+  font-size: var(--fs-700);
+}
+.surahmeta {
+  gap: var(--sp-3);
+  font-size: var(--fs-300);
+}
+
+.qurantools .panel__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.qurantools__status {
+  gap: var(--sp-4);
+  font-size: var(--fs-200);
+}
+
+.trchooser {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.trchooser legend {
+  padding: 0;
+  font-size: var(--fs-300);
+  color: var(--text-muted);
+}
+.trchooser__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.trchooser__option {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: var(--inline-target);
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--radius-1);
+  cursor: pointer;
+}
+.trchooser__option:hover {
+  background: var(--surface-2);
+}
+.trchooser__option input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+.trchooser__title {
+  font-size: var(--fs-400);
+}
+
+.continuebar {
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--gold);
+  border-radius: var(--radius-2);
+  background: var(--gold-soft);
+}
+
+.ayahfeed {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.feednote {
+  font-size: var(--fs-100);
+}
+
+.ayah {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  border: 1px solid var(--border);
+  border-inline-start: 3px solid var(--hairline);
+  border-radius: var(--radius-2);
+  background: var(--surface-1);
+  scroll-margin-block-start: 96px;
+}
+.ayah__head {
+  gap: var(--sp-3);
+}
+.ayah__key {
+  margin: 0;
+  font-size: var(--fs-300);
+  font-weight: var(--weight-medium);
+}
+.ayah__tags {
+  gap: var(--sp-2);
+  font-size: var(--fs-100);
+}
+.ayah .quran-text {
+  margin: 0;
+  max-width: var(--measure-quran);
+}
+.ayah__tr {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  max-width: var(--measure-chrome);
+}
+.ayah__trtext {
+  margin: 0;
+  font-size: var(--fs-400);
+  color: var(--text);
+}
+.ayah__packlabel {
+  gap: var(--sp-2);
+  font-size: var(--fs-100);
+}
+.ayah__tools {
+  gap: var(--sp-2);
+  padding-block-start: var(--sp-1);
+  border-block-start: 1px dashed var(--hairline);
+}
+.ayah__tools .btn {
+  min-height: var(--inline-target);
+  font-size: var(--fs-300);
+}
+
+/* ---------------------------------------------------------------- disclosure */
+.tafr {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.tafr__item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-3);
+  border-inline-start: 2px solid var(--accent-soft);
+  border-radius: var(--radius-1);
+  background: var(--surface-0);
+}
+.tafr__title {
+  margin: 0;
+  font-size: var(--fs-400);
+}
+.tafr__text {
+  margin: 0;
+  font-size: var(--fs-500);
+  line-height: var(--lh-ui);
+}
+
+.notelist {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.notelist__item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-1);
+  background: var(--surface-0);
+}
+.notelist__body {
+  margin: 0;
+  white-space: pre-wrap;
+}
+.notelist__tools {
+  justify-content: flex-end;
+  font-size: var(--fs-100);
+}
+
+/* --------------------------------------------------------------------- juz */
+.juzgrid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.juzcard {
+  height: 100%;
+}
+
+/* --------------------------------------------------------------- bookmarks */
+.bookmarklist {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.bookmarklist__row {
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2);
+  background: var(--surface-1);
+}
+.bookmarklist__main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.bookmarklist__label {
+  font-size: var(--fs-500);
+  color: var(--text-strong);
+}
+
+/* ------------------------------------------------------------ mushaf page */
+.mushafpage .panel__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  background: var(--surface-0);
+}
+.mushafline__wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.mushafline {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0 var(--sp-1);
+  margin: 0;
+  padding-inline-start: 4ch;
+  font-size: var(--mushaf-size);
+}
+.mushafline__no {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  font-size: var(--fs-100);
+}
+.mushafgap {
+  display: flex;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: var(--sp-1) var(--sp-3);
+  border-block: 1px dashed var(--gold);
+  background: var(--gold-soft);
+  color: var(--text-muted);
+  font-size: var(--fs-100);
+}
+.pagestarts {
+  gap: var(--sp-4);
+  font-size: var(--fs-300);
+}
+.pagejump {
+  align-items: flex-end;
+}
+.pagejump .field {
+  flex: 0 1 220px;
+}
+.pagejump .input {
+  max-width: 12ch;
+}
+
+/* ----------------------------------------------------------- single ayah */
+.focustools {
+  padding-block-start: var(--sp-3);
+  border-block-start: 1px dashed var(--hairline);
+}
+.focuspack__title {
+  margin: 0;
+  font-size: var(--fs-400);
+}
+.similalist,
+.relationlist {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.similalist__row {
+  justify-content: space-between;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-1);
+}
+.relationlist__item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-1);
+}
+
+@media (max-width: 900px) {
+  .surahrow {
+    grid-template-columns: 3.2ch minmax(0, 1fr);
+  }
+  .surahrow__meta,
+  .surahrow__links {
+    grid-column: 2 / -1;
+    justify-content: flex-start;
+  }
+  .bookmarklist__row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

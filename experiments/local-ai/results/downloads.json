@@ -1,0 +1,347 @@
+{
+  "generatedAt": "2026-09-27T22:37:50.910Z",
+  "mode": "download",
+  "files": [
+    {
+      "candidate": "mmnl12-int8",
+      "repo": "Xenova/paraphrase-multilingual-MiniLM-L12-v2",
+      "upstream": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+      "file": "onnx/model_quantized.onnx",
+      "url": "https://huggingface.co/Xenova/paraphrase-multilingual-MiniLM-L12-v2/resolve/main/onnx/model_quantized.onnx",
+      "remoteBytes": 118308126,
+      "remoteMB": 112.83,
+      "state": "cached",
+      "firstDownload": {
+        "downloadMs": 387742,
+        "transferredBytes": 118308126,
+        "throughputMBps": 0.29,
+        "at": null
+      },
+      "bytesOnDisk": 118308126,
+      "onDiskMB": 112.83,
+      "sha256": "66fc00f5f29afcaff34092e1bdd20008ca3918265a82fb9695a551e510cc4ebc"
+    },
+    {
+      "candidate": "mmnl12-int8",
+      "repo": "Xenova/paraphrase-multilingual-MiniLM-L12-v2",
+      "upstream": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+      "file": "tokenizer.json",
+      "url": "https://huggingface.co/Xenova/paraphrase-multilingual-MiniLM-L12-v2/resolve/main/tokenizer.json",
+      "remoteBytes": 17082913,
+      "remoteMB": 16.29,
+      "state": "cached",
+      "firstDownload": {
+        "downloadMs": 50113,
+        "transferredBytes": 17082913,
+        "throughputMBps": 0.33,
+        "at": null
+      },
+      "bytesOnDisk": 17082913,
+      "onDiskMB": 16.29,
+      "sha256": "b60b6b43406a48bf3638526314f3d232d97058bc93472ff2de930d43686fa441"
+    },
+    {
+      "candidate": "mmnl12-int8",
+      "repo": "Xenova/paraphrase-multilingual-MiniLM-L12-v2",
+      "upstream": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+      "file": "tokenizer_config.json",
+      "url": "https://huggingface.co/Xenova/paraphrase-multilingual-MiniLM-L12-v2/resolve/main/tokenizer_config.json",
+      "remoteBytes": 496,
+      "remoteMB": 0,
+      "state": "cached",
+      "firstDownload": {
+        "downloadMs": 1121,
+        "transferredBytes": 496,
+        "throughputMBps": 0,
+        "at": null
+      },
+      "bytesOnDisk": 496,
+      "onDiskMB": 0,
+      "sha256": "3f5961b9ac86288cccdb97f32fb848d6187c78e1603958c53f3ea1f296b7d8a2"
+    },
+    {
+      "candidate": "mmnl12-int8",
+      "repo": "Xenova/paraphrase-multilingual-MiniLM-L12-v2",
+      "upstream": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+      "file": "config.json",
+      "url": "https://huggingface.co/Xenova/paraphrase-multilingual-MiniLM-L12-v2/resolve/main/config.json",
+      "remoteBytes": 673,
+      "remoteMB": 0,
+      "state": "cached",
+      "firstDownload": {
+        "downloadMs": 1672,
+        "transferredBytes": 673,
+        "throughputMBps": 0,
+        "at": null
+      },
+      "bytesOnDisk": 673,
+      "onDiskMB": 0,
+      "sha256": "05b570bff786faa5c4604152aa16f19f77ed6dfc31e47dd0f3dd987078693ac7"
+    },
+    {
+      "candidate": "me5-small-int8",
+      "repo": "Xenova/multilingual-e5-small",
+      "upstream": "intfloat/multilingual-e5-small",
+      "file": "onnx/model_quantized.onnx",
+      "url": "https://huggingface.co/Xenova/multilingual-e5-small/resolve/main/onnx/model_quantized.onnx",
+      "remoteBytes": 118308185,
+      "remoteMB": 112.83,
+      "state": "cached",
+      "firstDownload": {
+        "downloadMs": 210588,
+        "transferredBytes": 118308185,
+        "throughputMBps": 0.54,
+        "at": null
+      },
+      "bytesOnDisk": 118308185,
+      "onDiskMB": 112.83,
+      "sha256": "f80102d3f2a1229f387d3c81909990d8945513e347b0eab049f7de3c6f98c193"
+    },
+    {
+      "candidate": "me5-small-int8",
+      "repo": "Xenova/multilingual-e5-small",
+      "upstream": "intfloat/multilingual-e5-small",
+      "file": "tokenizer.json",
+      "url": "https://huggingface.co/Xenova/multilingual-e5-small/resolve/main/tokenizer.json",
+      "remoteBytes": 17082730,
+      "remoteMB": 16.29,
+      "state": "cached",
+      "firstDownload": {
+        "downloadMs": 50900,
+        "transferredBytes": 17082730,
+        "throughputMBps": 0.32,
+        "at": null
+      },
+      "bytesOnDisk": 17082730,
+      "onDiskMB": 16.29,
+      "sha256": "0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39"
+    },
+    {
+      "candidate": "me5-small-int8",
+      "repo": "Xenova/multilingual-e5-small",
+      "upstream": "intfloat/multilingual-e5-small",
+      "file": "tokenizer_config.json",
+      "url": "https://huggingface.co/Xenova/multilingual-e5-small/resolve/main/tokenizer_config.json",
+      "remoteBytes": 443,
+      "remoteMB": 0,
+      "state": "cached",
+      "firstDownload": {
+        "downloadMs": 1042,
+        "transferredBytes": 443,
+        "throughputMBps": 0,
+        "at": null
+      },
+      "bytesOnDisk": 443,
+      "onDiskMB": 0,
+      "sha256": "a1d6bc8734a6f635dc158508bef000f8e2e5a759c7d92f984b2c86e5ff53425b"
+    },
+    {
+      "candidate": "me5-small-int8",
+      "repo": "Xenova/multilingual-e5-small",
+      "upstream": "intfloat/multilingual-e5-small",
+      "file": "config.json",
+      "url": "https://huggingface.co/Xenova/multilingual-e5-small/resolve/main/config.json",
+      "remoteBytes": 658,
+      "remoteMB": 0,
+      "state": "cached",
+      "firstDownload": {
+        "downloadMs": 1076,
+        "transferredBytes": 658,
+        "throughputMBps": 0,
+        "at": null
+      },
+      "bytesOnDisk": 658,
+      "onDiskMB": 0,
+      "sha256": "cb99455288675345e1a4f411438d5d0adbba5fbd3a67ea4fb03c015433b996c1"
+    },
+    {
+      "candidate": "minilm-en-int8",
+      "repo": "Xenova/all-MiniLM-L6-v2",
+      "upstream": "sentence-transformers/all-MiniLM-L6-v2",
+      "file": "onnx/model_quantized.onnx",
+      "url": "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/onnx/model_quantized.onnx",
+      "remoteBytes": 22972370,
+      "remoteMB": 21.91,
+      "state": "cached",
+      "firstDownload": {
+        "downloadMs": 43092,
+        "transferredBytes": 22972370,
+        "throughputMBps": 0.51,
+        "at": null
+      },
+      "bytesOnDisk": 22972370,
+      "onDiskMB": 21.91,
+      "sha256": "afdb6f1a0e45b715d0bb9b11772f032c399babd23bfc31fed1c170afc848bdb1"
+    },
+    {
+      "candidate": "minilm-en-int8",
+      "repo": "Xenova/all-MiniLM-L6-v2",
+      "upstream": "sentence-transformers/all-MiniLM-L6-v2",
+      "file": "tokenizer.json",
+      "url": "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/tokenizer.json",
+      "remoteBytes": 711661,
+      "remoteMB": 0.68,
+      "state": "cached",
+      "firstDownload": {
+        "downloadMs": 3747,
+        "transferredBytes": 711661,
+        "throughputMBps": 0.18,
+        "at": null
+      },
+      "bytesOnDisk": 711661,
+      "onDiskMB": 0.68,
+      "sha256": "da0e79933b9ed51798a3ae27893d3c5fa4a201126cef75586296df9b4d2c62a0"
+    },
+    {
+      "candidate": "minilm-en-int8",
+      "repo": "Xenova/all-MiniLM-L6-v2",
+      "upstream": "sentence-transformers/all-MiniLM-L6-v2",
+      "file": "tokenizer_config.json",
+      "url": "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/tokenizer_config.json",
+      "remoteBytes": 366,
+      "remoteMB": 0,
+      "downloadMs": 1879,
+      "transferredBytes": 366,
+      "at": "2026-09-27T22:38:21.075Z",
+      "throughputMBps": 0,
+      "state": "downloaded",
+      "bytesOnDisk": 366,
+      "onDiskMB": 0,
+      "sha256": "9261e7d79b44c8195c1cada2b453e55b00aeb81e907a6664974b4d7776172ab3"
+    },
+    {
+      "candidate": "minilm-en-int8",
+      "repo": "Xenova/all-MiniLM-L6-v2",
+      "upstream": "sentence-transformers/all-MiniLM-L6-v2",
+      "file": "config.json",
+      "url": "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/config.json",
+      "remoteBytes": 650,
+      "remoteMB": 0,
+      "state": "cached",
+      "firstDownload": {
+        "downloadMs": 2497,
+        "transferredBytes": 650,
+        "throughputMBps": 0,
+        "at": null
+      },
+      "bytesOnDisk": 650,
+      "onDiskMB": 0,
+      "sha256": "7135149f7cffa1a573466c6e4d8423ed73b62fd2332c575bf738a0d033f70df7"
+    }
+  ],
+  "perCandidate": {
+    "mmnl12-int8": {
+      "repo": "Xenova/paraphrase-multilingual-MiniLM-L12-v2",
+      "upstream": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+      "files": [
+        {
+          "file": "onnx/model_quantized.onnx",
+          "onDiskMB": 112.83,
+          "sha256": "66fc00f5f29afcaff34092e1bdd20008ca3918265a82fb9695a551e510cc4ebc",
+          "downloadMs": null,
+          "throughputMBps": null
+        },
+        {
+          "file": "tokenizer.json",
+          "onDiskMB": 16.29,
+          "sha256": "b60b6b43406a48bf3638526314f3d232d97058bc93472ff2de930d43686fa441",
+          "downloadMs": null,
+          "throughputMBps": null
+        },
+        {
+          "file": "tokenizer_config.json",
+          "onDiskMB": 0,
+          "sha256": "3f5961b9ac86288cccdb97f32fb848d6187c78e1603958c53f3ea1f296b7d8a2",
+          "downloadMs": null,
+          "throughputMBps": null
+        },
+        {
+          "file": "config.json",
+          "onDiskMB": 0,
+          "sha256": "05b570bff786faa5c4604152aa16f19f77ed6dfc31e47dd0f3dd987078693ac7",
+          "downloadMs": null,
+          "throughputMBps": null
+        }
+      ],
+      "modelMB": 112.83,
+      "totalMB": 129.12
+    },
+    "me5-small-int8": {
+      "repo": "Xenova/multilingual-e5-small",
+      "upstream": "intfloat/multilingual-e5-small",
+      "files": [
+        {
+          "file": "onnx/model_quantized.onnx",
+          "onDiskMB": 112.83,
+          "sha256": "f80102d3f2a1229f387d3c81909990d8945513e347b0eab049f7de3c6f98c193",
+          "downloadMs": null,
+          "throughputMBps": null
+        },
+        {
+          "file": "tokenizer.json",
+          "onDiskMB": 16.29,
+          "sha256": "0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39",
+          "downloadMs": null,
+          "throughputMBps": null
+        },
+        {
+          "file": "tokenizer_config.json",
+          "onDiskMB": 0,
+          "sha256": "a1d6bc8734a6f635dc158508bef000f8e2e5a759c7d92f984b2c86e5ff53425b",
+          "downloadMs": null,
+          "throughputMBps": null
+        },
+        {
+          "file": "config.json",
+          "onDiskMB": 0,
+          "sha256": "cb99455288675345e1a4f411438d5d0adbba5fbd3a67ea4fb03c015433b996c1",
+          "downloadMs": null,
+          "throughputMBps": null
+        }
+      ],
+      "modelMB": 112.83,
+      "totalMB": 129.12
+    },
+    "minilm-en-int8": {
+      "repo": "Xenova/all-MiniLM-L6-v2",
+      "upstream": "sentence-transformers/all-MiniLM-L6-v2",
+      "files": [
+        {
+          "file": "onnx/model_quantized.onnx",
+          "onDiskMB": 21.91,
+          "sha256": "afdb6f1a0e45b715d0bb9b11772f032c399babd23bfc31fed1c170afc848bdb1",
+          "downloadMs": null,
+          "throughputMBps": null
+        },
+        {
+          "file": "tokenizer.json",
+          "onDiskMB": 0.68,
+          "sha256": "da0e79933b9ed51798a3ae27893d3c5fa4a201126cef75586296df9b4d2c62a0",
+          "downloadMs": null,
+          "throughputMBps": null
+        },
+        {
+          "file": "tokenizer_config.json",
+          "onDiskMB": 0,
+          "sha256": "9261e7d79b44c8195c1cada2b453e55b00aeb81e907a6664974b4d7776172ab3",
+          "downloadMs": 1879,
+          "throughputMBps": 0
+        },
+        {
+          "file": "config.json",
+          "onDiskMB": 0,
+          "sha256": "7135149f7cffa1a573466c6e4d8423ed73b62fd2332c575bf738a0d033f70df7",
+          "downloadMs": null,
+          "throughputMBps": null
+        }
+      ],
+      "modelMB": 21.91,
+      "totalMB": 22.59
+    }
+  },
+  "totalsMB": {
+    "mmnl12-int8": 129.12,
+    "me5-small-int8": 129.12,
+    "minilm-en-int8": 22.59
+  }
+}

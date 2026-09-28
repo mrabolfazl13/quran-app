@@ -22,7 +22,7 @@ import {
   rawExists,
   sha256hex,
 } from './common.ts';
-import { runValidation } from './validate.ts';
+import { validateRaw, validatePacks } from './validate.ts';
 import type { Surah, Ayah, AyahWord, Translation, TafsirPassage, VerseKey } from '../../../core/src/contracts/quran.ts';
 import type {
   ContentPackManifest,
@@ -179,9 +179,13 @@ function earliestFetchedAt(deps: string[]): string {
 }
 
 async function main(): Promise<void> {
-  // ---- gate: validation must pass on raw data before anything is emitted ----
-  console.log('running validation gate…');
-  const { errors, warnings, stats } = await runValidation();
+  // ---- gate: raw data must validate before anything is emitted ----
+  // `validateRaw` only: the on-disk packs are the *previous* build at this
+  // point, so checking them here would compare old bytes against new rules and
+  // abort every legitimate rebuild. The freshly written packs are verified
+  // after the write, below, and a mismatch exits non-zero.
+  console.log('running raw validation gate…');
+  const { errors, warnings, stats } = await validateRaw();
   if (errors.length) {
     console.error(`BUILD ABORTED — validation failed with ${errors.length} error(s):`);
     for (const e of errors.slice(0, 30)) console.error(`  ${e}`);
@@ -251,6 +255,27 @@ async function main(): Promise<void> {
   const coreDeps = ['quran-com/chapters.json', 'quran-com/verses-uthmani.json', 'quran-com/verses-uthmani-simple.json', ...ALL_CHAPTERS.map((c) => `quran-com/divisions-${c}.json`)];
 
   // ---- pack: word-data ----
+  /**
+   * Mushaf grid metadata, copied verbatim from the provider word row.
+   * No default, no fallback: `page_number` 1..604 and `line_number` 1..15 are
+   * the printed Madani placement, and the offline reader rebuilds the 604-page
+   * grid from them. A row that does not carry a usable pair stops the build —
+   * inventing a page would fabricate mushaf layout.
+   * (Measured over all 114 captures: every one of the 83 665 word rows has both,
+   * pages span exactly 1..604 and lines 1..15.)
+   */
+  const MUSHAF_PAGE_MAX = 604;
+  const MUSHAF_LINE_MAX = 15;
+  function mushafInt(value: unknown, where: string, field: string, lo: number, hi: number): number {
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < lo || value > hi) {
+      throw new Error(
+        `word-data: ${where} has no usable ${field} (got ${JSON.stringify(value)}); ` +
+          `expected an integer in ${lo}..${hi} — mushaf placement is never invented`,
+      );
+    }
+    return value;
+  }
+
   const wordRecs: AyahWord[] = [];
   for (const c of ALL_CHAPTERS) {
     const body = readRawJson<any>(`quran-com/words-${c}.json`);
@@ -262,10 +287,13 @@ async function main(): Promise<void> {
       for (const w of v.words as any[]) {
         const isEnd = w.char_type_name === 'end';
         if (!isEnd) wordPos += 1;
+        const where = `${key} word id ${w.id} pos ${w.position}`;
         entries.push({
           id: w.id,
           verseKey: key,
           position: isEnd ? wordPos + 1 + endPos++ : wordPos,
+          pageNumber: mushafInt(w.page_number, where, 'page_number', 1, MUSHAF_PAGE_MAX),
+          lineNumber: mushafInt(w.line_number, where, 'line_number', 1, MUSHAF_LINE_MAX),
           textUthmani: w.text_uthmani,
           translationEn: w.translation?.language_name === 'english' ? (w.translation.text ?? null) : null,
           transliteration: w.transliteration?.language_name === 'english' ? (w.transliteration.text ?? null) : null,
@@ -332,7 +360,7 @@ async function main(): Promise<void> {
     {
       dir: 'word-data',
       payload: wordPayload,
-      manifest: makeManifest('word-data', 'word-data', 'ar', 'Word-by-word Uthmani text with English glosses and transliteration', LICENSES['word-data'], wordPayload, wordRecs.length, earliestFetchedAt(ALL_CHAPTERS.map((c) => `quran-com/words-${c}.json`))),
+      manifest: makeManifest('word-data', 'word-data', 'ar', 'Word-by-word Uthmani text with Madani mushaf page/line placement, English glosses and transliteration', LICENSES['word-data'], wordPayload, wordRecs.length, earliestFetchedAt(ALL_CHAPTERS.map((c) => `quran-com/words-${c}.json`))),
     },
     ...TRANSLATION_RESOURCES.map(({ resourceId }) => builtTranslation[resourceId]!),
     ...builtTafsir,
@@ -358,6 +386,22 @@ async function main(): Promise<void> {
   console.log(`\nwrote ${packs.length} packs:`);
   for (const p of packs) console.log(`  ${p.dir}: records=${p.manifest.recordCount} bytes=${p.manifest.payloadBytes} sha=${p.manifest.checksum.slice(0, 16)}…`);
   console.log('content/index.json written.');
+
+  // ---- post-build: the packs we just emitted must verify against raw ----
+  const post = validatePacks();
+  if (post) {
+    for (const w of post.warnings) console.warn(`  warn: ${w}`);
+    if (post.errors.length) {
+      console.error(`POST-BUILD VALIDATION FAILED — ${post.errors.length} error(s):`);
+      for (const e of post.errors.slice(0, 30)) console.error(`  ${e}`);
+      process.exit(1);
+    }
+    console.log(`post-build pack validation passed. ${JSON.stringify({
+      'word-data_records': post.stats['word-data_records'],
+      'word-data_mushafPages': post.stats.word_data_mushafPages,
+      indexPacks: post.stats.indexPacks,
+    })}`);
+  }
 }
 
 main().catch((e) => {

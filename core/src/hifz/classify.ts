@@ -62,13 +62,28 @@ export interface ClassifyInput {
    * whole-ayah modes (see `POSITIONAL_FAILURE_MODES`).
    */
   positionalFailures?: boolean;
+  /**
+   * 1-based, inclusive range of `expected` the probe actually asked for, in
+   * ayah-absolute word positions (`RecallProbe.fromWord` / `toWord`).
+   *
+   * A `segment`, `missing-word`, `opening` or `transition` step cues a slice of
+   * the ayah, so the slice is what gets graded: a flawless two-word segment
+   * inside a thirteen-word ayah is a success, not a 15% recall. Omit it to grade
+   * every expected word.
+   *
+   * Results stay ayah-absolute regardless — `errors[].expectedPosition`,
+   * `alignment[].expectedIndex` and `firstErrorPosition` count from the start of
+   * the ayah, so segment attribution and the word-by-word view keep pointing at
+   * the same words they did before.
+   */
+  span?: { fromWord: number; toWord: number } | null;
 }
 
 export type AlignmentOpKind = 'match' | 'mismatch' | 'omission' | 'insertion';
 
 export interface AlignmentOp {
   kind: AlignmentOpKind;
-  /** 0-based index into the expected list, or null for insertions. */
+  /** 0-based index into the expected list, or null for insertions. Ayah-absolute when a `span` was given. */
   expectedIndex: number | null;
   /** 0-based index into the produced list, or null for omissions. */
   producedIndex: number | null;
@@ -300,6 +315,16 @@ function segmentFor(spans: readonly SegmentSpan[] | undefined, wordPosition: num
   return null;
 }
 
+/** The graded range, clamped into the word list; the whole list when no span is given. */
+function spanBounds(
+  span: { fromWord: number; toWord: number } | null | undefined,
+  wordCount: number,
+): { from: number; to: number } {
+  if (!span) return { from: 1, to: Math.max(0, wordCount) };
+  const from = Math.max(1, Math.min(Math.trunc(span.fromWord), Math.max(1, wordCount)));
+  return { from, to: Math.max(from, Math.min(Math.trunc(span.toWord), wordCount)) };
+}
+
 /** Maximal sequences of consecutive non-matching alignment ops. */
 function runsOf(ops: readonly AlignmentOp[]): AlignmentOp[][] {
   const runs: AlignmentOp[][] = [];
@@ -506,10 +531,17 @@ function classifyRun(
  * as fully correct: any divergence produces at least one non-`correct` error.
  */
 export function classifyRecitation(input: ClassifyInput): ClassificationResult {
-  const expected = normList(input.expected);
+  const full = normList(input.expected);
+  const span = spanBounds(input.span, full.norm.length);
+  // Everything below — the alignment, the error attribution, the positional
+  // thirds — runs in the graded span's own frame. `base` is what turns those
+  // positions back into ayah-absolute ones on the way out.
+  const base = span.from - 1;
+  const expected = { raw: full.raw.slice(base, span.to), norm: full.norm.slice(base, span.to) };
   const produced = normList(input.produced);
   const mode: RecallMode = input.mode ?? 'full-ayah';
   const alignment = alignWords(expected.norm, produced.norm);
+  const segments = input.segments?.map((s) => ({ position: s.position, fromWord: s.fromWord - base, toWord: s.toWord - base }));
 
   const errors: DetectedError[] = [];
   const runs: ClassifiedRun[] = [];
@@ -524,7 +556,7 @@ export function classifyRecitation(input: ClassifyInput): ClassificationResult {
         expected: expected.raw[op.expectedIndex ?? 0] ?? null,
         actual: produced.raw[op.producedIndex ?? 0] ?? null,
         confusedWithVerseKey: null,
-        segmentPosition: segmentFor(input.segments, position),
+        segmentPosition: segmentFor(segments, position),
         explanation: 'Exact match after normalisation.',
       });
     }
@@ -538,7 +570,7 @@ export function classifyRecitation(input: ClassifyInput): ClassificationResult {
       producedNorm: produced.norm,
       confusionCandidates: input.confusionCandidates ?? [],
       continuations: input.continuations ?? [],
-      segments: input.segments,
+      segments,
     });
     errors.push(...classified.errors);
     if (classified.run) runs.push(classified.run);
@@ -563,7 +595,7 @@ export function classifyRecitation(input: ClassifyInput): ClassificationResult {
         expected: expected.raw[position - 1] ?? null,
         actual: produced.raw[0] ?? null,
         confusedWithVerseKey: best.verseKey,
-        segmentPosition: segmentFor(input.segments, position),
+        segmentPosition: segmentFor(segments, position),
         explanation: `Recitation matches ${best.verseKey} (word-set similarity ${best.score.toFixed(2)}).`,
       });
       runs.push({
@@ -590,7 +622,7 @@ export function classifyRecitation(input: ClassifyInput): ClassificationResult {
         expected: expected.raw[(firstErrorPosition ?? 1) - 1] ?? null,
         actual: null,
         confusedWithVerseKey: null,
-        segmentPosition: segmentFor(input.segments, firstErrorPosition ?? 1),
+        segmentPosition: segmentFor(segments, firstErrorPosition ?? 1),
         explanation: `First break-down falls in the ${positional.replace('-failure', '')} third of the ayah.`,
       });
       errors.sort((a, b) => a.expectedPosition - b.expectedPosition || kindOrder(a.kind) - kindOrder(b.kind));
@@ -606,17 +638,22 @@ export function classifyRecitation(input: ClassifyInput): ClassificationResult {
   const unpairedProduced = alignment.filter((op) => op.kind === 'insertion').length;
   const scoredCorrectWordCount = Math.max(0, correctWordCount - unpairedProduced);
   const accuracy = expectedWordCount === 0 ? 0 : scoredCorrectWordCount / expectedWordCount;
+  // Last step back into the ayah's own frame. A position a screen marks or a
+  // later sum counts has to name the same word whether the step graded the whole
+  // ayah or one segment of it, so the span-relative work above is offset here.
+  const absolute = (position: number): number => position + base;
   return {
     itemId: input.itemId ?? null,
     verseKey: input.verseKey ?? null,
     mode,
     alignment: alignment.map((op) => ({
       ...op,
+      expectedIndex: op.expectedIndex === null ? null : op.expectedIndex + base,
       expected: op.expectedIndex !== null ? expected.raw[op.expectedIndex] ?? null : null,
       produced: op.producedIndex !== null ? produced.raw[op.producedIndex] ?? null : null,
     })),
-    runs,
-    errors,
+    runs: runs.map((run) => ({ ...run, fromWord: absolute(run.fromWord), toWord: absolute(run.toWord) })),
+    errors: errors.map((error) => ({ ...error, expectedPosition: absolute(error.expectedPosition) })),
     expectedWordCount,
     correctWordCount: scoredCorrectWordCount,
     /** Expected words that matched exactly before the extra-word penalty. */
@@ -624,7 +661,7 @@ export function classifyRecitation(input: ClassifyInput): ClassificationResult {
     /** Produced words with no counterpart in the ayah. */
     unpairedProducedWordCount: unpairedProduced,
     accuracy,
-    firstErrorPosition,
+    firstErrorPosition: firstErrorPosition === null ? null : absolute(firstErrorPosition),
   };
 }
 
@@ -677,6 +714,7 @@ export function classifyRecitationFromText(input: {
   continuations?: readonly CandidateAyah[];
   segments?: readonly SegmentSpan[];
   positionalFailures?: boolean;
+  span?: { fromWord: number; toWord: number } | null;
 }): ClassificationResult {
   return classifyRecitation({
     expected: tokenizeWords(input.expectedText),
@@ -688,6 +726,7 @@ export function classifyRecitationFromText(input: {
     continuations: input.continuations,
     segments: input.segments,
     positionalFailures: input.positionalFailures,
+    span: input.span,
   });
 }
 

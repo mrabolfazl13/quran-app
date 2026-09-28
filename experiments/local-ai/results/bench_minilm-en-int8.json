@@ -1,0 +1,135 @@
+{
+  "candidate": "minilm-en-int8",
+  "label": "all-MiniLM-L6-v2 (dynamic int8) — English-only control",
+  "stack": {
+    "runtime": "onnxruntime-node 1.30 via @huggingface/transformers 3.8",
+    "provider": "CPU (default EP, no tuning of thread counts)",
+    "quantisation": "dynamic int8 (onnx/model_quantized.onnx)",
+    "pooling": "mean over non-pad tokens + L2 normalise (done in JS)",
+    "maxLen": 256
+  },
+  "nInferences": 660,
+  "timingsMs": {
+    "corpusJsonLoad": 4172,
+    "tokenizerPlusGraphLoad": 10104,
+    "warmupBatch10": 500.9,
+    "note": "process-cold; the ONNX file is in the Windows file cache once downloaded, so this is a warm-file cold-process load. The very first load after transfer (page cache empty) is recorded separately in results/cold-load-notes.md."
+  },
+  "singleItem": {
+    "perKind": {
+      "arabic": {
+        "n": 220,
+        "tokenLenMedian": 37.5,
+        "tokenLenMax": 256,
+        "atCap": 1,
+        "totalMsMedian": 5.604,
+        "totalMsP95": 14.047,
+        "inferenceMsMedian": 5.207,
+        "tokenizeMsMedian": 0.334
+      },
+      "persian": {
+        "n": 220,
+        "tokenLenMedian": 86,
+        "tokenLenMax": 256,
+        "atCap": 15,
+        "totalMsMedian": 9.628,
+        "totalMsP95": 31.779,
+        "inferenceMsMedian": 8.957,
+        "tokenizeMsMedian": 0.509
+      },
+      "english": {
+        "n": 220,
+        "tokenLenMedian": 26.5,
+        "tokenLenMax": 179,
+        "atCap": 0,
+        "totalMsMedian": 4.219,
+        "totalMsP95": 9.366,
+        "inferenceMsMedian": 3.966,
+        "tokenizeMsMedian": 0.171
+      }
+    },
+    "all": {
+      "median": 5.86,
+      "p95": 21.59,
+      "mean": 8.167,
+      "n": 660
+    }
+  },
+  "batch": {
+    "requestedSize": 100,
+    "runs": [
+      {
+        "rep": 0,
+        "mode": "corpus-order",
+        "n": 100,
+        "padded_len": 256,
+        "ms": 6062.3,
+        "ms_per_item": 60.623
+      },
+      {
+        "rep": 0,
+        "mode": "length-sorted",
+        "n": 100,
+        "padded_len": 256,
+        "ms": 16111.7,
+        "ms_per_item": 161.117
+      },
+      {
+        "rep": 1,
+        "mode": "corpus-order",
+        "n": 100,
+        "padded_len": 256,
+        "ms": 7639.1,
+        "ms_per_item": 76.391
+      },
+      {
+        "rep": 1,
+        "mode": "length-sorted",
+        "n": 100,
+        "padded_len": 256,
+        "ms": 5626.9,
+        "ms_per_item": 56.269
+      },
+      {
+        "rep": null,
+        "mode": "length-sorted-batch8",
+        "n": 8,
+        "padded_len": 73,
+        "ms": 828.1,
+        "ms_per_item": 103.51
+      },
+      {
+        "rep": null,
+        "mode": "length-sorted-batch32",
+        "n": 32,
+        "padded_len": 256,
+        "ms": 3022.8,
+        "ms_per_item": 94.462
+      }
+    ]
+  },
+  "memoryMB": {},
+  "extrapolation": {
+    "single": {
+      "EXTRAPOLATED": true,
+      "msPerItem": 5.86,
+      "formula": "6236 ayahs x 5.860 ms/item / 1000 (also x3 for ar+fa+en)",
+      "secondsArabicOnly": 36.5,
+      "secondsThreeLanguages": 109.6
+    },
+    "batch100_corpus_order": {
+      "EXTRAPOLATED": true,
+      "msPerItem": 68.507,
+      "formula": "6236 ayahs x 68.507 ms/item / 1000 (also x3 for ar+fa+en)",
+      "secondsArabicOnly": 427.2,
+      "secondsThreeLanguages": 1281.6
+    },
+    "batch100_length_sorted": {
+      "EXTRAPOLATED": true,
+      "msPerItem": 108.693,
+      "formula": "6236 ayahs x 108.693 ms/item / 1000 (also x3 for ar+fa+en)",
+      "secondsArabicOnly": 677.8,
+      "secondsThreeLanguages": 2033.4
+    }
+  }
+}

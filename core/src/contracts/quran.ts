@@ -68,6 +68,18 @@ export interface AyahWord {
   verseKey: VerseKey;
   /** 1-based position among word tokens of the ayah (excludes end-of-ayah marks). */
   position: number;
+  /**
+   * Madani mushaf page this token was printed on, 1..604 — the provider's own
+   * mushaf metadata (`page_number`), copied verbatim. Required: the offline app
+   * rebuilds the 604-page grid from packs only (`core/src/mushaf/layout.ts`), so
+   * a word row without a page cannot be laid out and never ships.
+   */
+  pageNumber: number;
+  /**
+   * Line within `pageNumber`, 1..15 (the printed Mushaf al-Madani grid is
+   * 15 lines tall) — provider `line_number`, never re-flowed or recomputed.
+   */
+  lineNumber: number;
   textUthmani: string;
   translationEn: string | null;
   transliteration: string | null;

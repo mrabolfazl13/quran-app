@@ -1,0 +1,9 @@
+file:///I:/Codes/Quran/experiments/local-ai/scripts/bench-inference.mjs:151
+writeFileSync(join(RESULTS, `bench_${argName}.json`), JSON.stringify(summary, null, 2));
+^
+
+ReferenceError: writeFileSync is not defined
+    at file:///I:/Codes/Quran/experiments/local-ai/scripts/bench-inference.mjs:151:1
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+
+Node.js v24.13.0

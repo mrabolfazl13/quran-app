@@ -62,15 +62,50 @@ export function ayahText(verseKey: VerseKey): string {
 }
 
 /**
+ * Madani mushaf placement for the fixture verses, read out of the provider
+ * captures (`data/raw/quran-com/words-<chapter>.json`, first line of the ayah)
+ * rather than invented here. `AyahWord` requires `pageNumber`/`lineNumber`
+ * because every shipped word row carries them; the hifz and search engines never
+ * read the two fields, and grid behaviour is tested in `core/tests/mushaf`.
+ * Tokens of one ayah share its opening line in these fixtures.
+ */
+const FIXTURE_MUSHAF: Readonly<Record<VerseKey, { pageNumber: number; lineNumber: number }>> = {
+  '1:1': { pageNumber: 1, lineNumber: 2 },
+  '1:2': { pageNumber: 1, lineNumber: 3 },
+  '1:3': { pageNumber: 1, lineNumber: 4 },
+  '1:4': { pageNumber: 1, lineNumber: 4 },
+  '1:5': { pageNumber: 1, lineNumber: 5 },
+  '1:6': { pageNumber: 1, lineNumber: 6 },
+  '1:7': { pageNumber: 1, lineNumber: 6 },
+  '2:255': { pageNumber: 42, lineNumber: 8 },
+  '108:1': { pageNumber: 602, lineNumber: 14 },
+  '108:2': { pageNumber: 602, lineNumber: 14 },
+  '108:3': { pageNumber: 602, lineNumber: 15 },
+  '112:1': { pageNumber: 604, lineNumber: 3 },
+  '112:2': { pageNumber: 604, lineNumber: 3 },
+  '112:3': { pageNumber: 604, lineNumber: 3 },
+  '112:4': { pageNumber: 604, lineNumber: 4 },
+};
+
+/** Page/line a fixture ayah's rows claim. A verse with no capture fails. */
+export function fixturePlacement(verseKey: VerseKey): { pageNumber: number; lineNumber: number } {
+  const found = FIXTURE_MUSHAF[verseKey];
+  if (found) return found;
+  throw new Error(`fixturePlacement: ${verseKey} has no captured mushaf placement — add it from data/raw, do not guess`);
+}
+
+/**
  * Build an `AyahWord` list from the fixture text. Positions are 1-based and
  * exclude ornamental marks, matching the `AyahWord` contract.
  */
 export function fixtureWords(verseKey: VerseKey, glosses: readonly string[] = []): AyahWord[] {
   const tokens = tokenizeWords(ayahText(verseKey));
+  const mushaf = fixturePlacement(verseKey);
   return tokens.map((text, index) => ({
     id: index + 1,
     verseKey,
     position: index + 1,
+    ...mushaf,
     textUthmani: text,
     translationEn: glosses[index] ? `fixture:${glosses[index]}` : null,
     transliteration: null,
@@ -83,12 +118,14 @@ export function fixtureWords(verseKey: VerseKey, glosses: readonly string[] = []
 /** The `AyahWord` list with the trailing end-of-ayah mark row, as packs ship it. */
 export function fixtureWordsWithMark(verseKey: VerseKey): AyahWord[] {
   const words = fixtureWords(verseKey);
+  const mushaf = fixturePlacement(verseKey);
   return [
     ...words,
     {
       id: 10_000 + words.length,
       verseKey,
       position: words.length + 1,
+      ...mushaf,
       textUthmani: 'ۚ',
       translationEn: null,
       transliteration: null,

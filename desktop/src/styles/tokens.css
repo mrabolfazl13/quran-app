@@ -1,0 +1,169 @@
+/* ============================================================================
+   Design tokens — the only place a colour, radius, shadow or step is defined.
+   Light + dark themes are both expressed here; components consume semantics
+   (--surface-1, --text-muted, …) and never a raw hex.
+   See docs/ux-spec.md for the reasoning behind each scale.
+   ========================================================================== */
+
+:root {
+  /* ---------------------------------------------------------------- type */
+  /* Modular-ish scale tuned for RTL Persian chrome, which needs a slightly
+     larger x-height than Latin at the same nominal px. */
+  --fs-100: 0.75rem;   /* 12px  metadata, badges */
+  --fs-200: 0.8125rem; /* 13px  secondary labels */
+  --fs-300: 0.875rem;  /* 14px  dense UI text */
+  --fs-400: 0.9375rem; /* 15px  default chrome body (fa) */
+  --fs-500: 1rem;      /* 16px  emphasised body */
+  --fs-600: 1.125rem;  /* 18px  section titles */
+  --fs-700: 1.375rem;  /* 22px  page titles */
+  --fs-800: 1.75rem;   /* 28px  display */
+  --fs-900: 2.25rem;   /* 36px  hero */
+
+  --lh-tight: 1.25;
+  --lh-ui: 1.6;
+  /* Mushaf text breathes: stacked harakat + kasratayn must never collide. */
+  --lh-quran: 2.15;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  /* Mushaf and Arabic sizes are rem-based so a reader can scale them in Me. */
+  --mushaf-size: 2rem;
+  --arabic-size: 1.375rem;
+
+  /* ------------------------------------------------------------ spacing */
+  --sp-0: 0px;
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+  --sp-8: 64px;
+  --sp-9: 96px;
+
+  --inline-target: 44px; /* minimum touch/click target */
+
+  --radius-1: 6px;
+  --radius-2: 10px;
+  --radius-3: 16px;
+  --radius-pill: 999px;
+
+  --ring: 0 0 0 2px var(--accent-ring);
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.06), 0 1px 1px rgb(0 0 0 / 0.04);
+  --shadow-2: 0 6px 18px -6px rgb(0 0 0 / 0.18), 0 2px 6px -2px rgb(0 0 0 / 0.1);
+  --shadow-3: 0 24px 60px -20px rgb(0 0 0 / 0.35), 0 8px 24px -12px rgb(0 0 0 / 0.2);
+
+  --stack-panel: 40;
+  --stack-overlay: 60;
+  --stack-toast: 80;
+
+  --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --dur-1: 120ms;
+  --dur-2: 200ms;
+
+  /* reader column: mushaf needs a generous measure, chrome needs less */
+  --measure-chrome: 68ch;
+  --measure-quran: 78ch;
+  --sidebar-width: 268px;
+  --panel-width: 480px;
+}
+
+/* ---------------------------------------------------------------- palette */
+/* Light: warm paper, deep ink. Gold is reserved for sacred/active affordances
+   only, never decoration. */
+:root,
+[data-theme='light'] {
+  color-scheme: light;
+
+  --bg: #f3efe6;
+  --surface-0: #faf7f0;
+  --surface-1: #ffffff;
+  --surface-2: #f6f2e9;
+  --surface-3: #ece5d7;
+  --surface-inverse: #14231f;
+
+  --text-strong: #12211d;
+  --text: #24322d;
+  --text-muted: #5c6b64;
+  --text-faint: #86938c;
+  --text-inverse: #f7f4ec;
+
+  --border: #ddd5c4;
+  --border-strong: #c4b99f;
+  --hairline: #e6e0d2;
+
+  --accent: #1c6a55;
+  --accent-strong: #14513f;
+  --accent-soft: #dfeee7;
+  --accent-ring: #2f8c70;
+  --accent-ink: #ffffff;
+
+  --gold: #9a742c;
+  --gold-soft: #f2e6cb;
+
+  --state-ok: #1c6a55;
+  --state-warn: #946112;
+  --state-danger: #9c2c2c;
+  --state-danger-soft: #f7e2e2;
+  --state-info: #23527a;
+  --state-info-soft: #e0ebf4;
+
+  --focus: #14513f;
+  --overlay: rgb(18 33 29 / 0.42);
+  --shadow-color: 30 45 40;
+}
+
+/* Dark: ink-teal, not neutral grey — keeps the paper-and-ink identity while
+   dropping luminance well below the light theme. */
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg: #0c1412;
+  --surface-0: #101a17;
+  --surface-1: #16221e;
+  --surface-2: #1c2a25;
+  --surface-3: #24342e;
+  --surface-inverse: #f3efe6;
+
+  --text-strong: #f4f1e8;
+  --text: #ddd9cd;
+  --text-muted: #a5afa7;
+  --text-faint: #7c877f;
+  --text-inverse: #12211d;
+
+  --border: #2c3d36;
+  --border-strong: #3d5349;
+  --hairline: #223029;
+
+  --accent: #6cc4a4;
+  --accent-strong: #8fd9be;
+  --accent-soft: #1b352c;
+  --accent-ring: #6cc4a4;
+  --accent-ink: #06201a;
+
+  --gold: #d9b169;
+  --gold-soft: #33280f;
+
+  --state-ok: #6cc4a4;
+  --state-warn: #e0b061;
+  --state-danger: #f08b8b;
+  --state-danger-soft: #3a1f1f;
+  --state-info: #86bde8;
+  --state-info-soft: #17273480;
+
+  --focus: #8fd9be;
+  --overlay: rgb(3 8 7 / 0.62);
+  --shadow-color: 0 0 0;
+}
+
+/* Semantic mapping for stability bands (hifz) — one source, used by chips,
+   progress rings and the review queue alike. */
+[data-band='new'] { --band-fg: var(--text-faint); --band-bg: var(--surface-3); }
+[data-band='unstable'] { --band-fg: var(--state-danger); --band-bg: var(--state-danger-soft); }
+[data-band='weak'] { --band-fg: var(--state-warn); --band-bg: var(--gold-soft); }
+[data-band='stable'] { --band-fg: var(--state-info); --band-bg: var(--state-info-soft); }
+[data-band='mastered'] { --band-fg: var(--state-ok); --band-bg: var(--accent-soft); }

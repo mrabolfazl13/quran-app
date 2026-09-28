@@ -1,0 +1,41 @@
+{
+  "generatedAt": "2026-09-27T22:21:26.682Z",
+  "ayahCount": 6236,
+  "checks": [
+    {
+      "check": "divisions vs verses-uthmani text",
+      "ayahs": 6236,
+      "mismatches": 0
+    },
+    {
+      "pack": "translation-135.json",
+      "resourceId": 135,
+      "rows": 6236,
+      "spotChecks": 854,
+      "spotCheckMismatches": 0,
+      "chaptersCovered": 12,
+      "examples": [],
+      "emptyRows": 0
+    },
+    {
+      "pack": "translation-29.json",
+      "resourceId": 29,
+      "rows": 6236,
+      "spotChecks": 854,
+      "spotCheckMismatches": 0,
+      "chaptersCovered": 12,
+      "examples": [],
+      "emptyRows": 0
+    },
+    {
+      "pack": "translation-85.json",
+      "resourceId": 85,
+      "rows": 6236,
+      "spotChecks": 854,
+      "spotCheckMismatches": 0,
+      "chaptersCovered": 12,
+      "examples": [],
+      "emptyRows": 0
+    }
+  ]
+}

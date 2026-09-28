@@ -1,0 +1,125 @@
+/* Shell geometry. Direction-sensitive gaps rely on logical properties because
+   the chrome is RTL by default and can be switched to LTR at runtime. */
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--text);
+}
+
+body {
+  font-family: 'Vazirmatn', 'Inter', system-ui, sans-serif;
+  font-size: var(--fs-400);
+  line-height: var(--lh-ui);
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  padding: var(--sp-5) var(--sp-3);
+  border-inline-end: 1px solid var(--border);
+  background: var(--surface-0);
+  overflow-y: auto;
+}
+
+.sidebar ul {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.navlink {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: var(--inline-target);
+  padding: 0 var(--sp-3);
+  border-radius: var(--radius-2);
+  color: var(--text);
+  font-size: var(--fs-500);
+  text-decoration: none;
+}
+
+.navlink:hover {
+  background: var(--surface-2);
+}
+
+.navlink.is-active {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-weight: var(--weight-semibold);
+}
+
+.shell__main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: var(--stack-panel);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: var(--sp-3) var(--sp-5);
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-0) 92%, transparent);
+  backdrop-filter: blur(6px);
+}
+
+.header__title {
+  margin: 0;
+  font-size: var(--fs-700);
+  font-weight: var(--weight-semibold);
+}
+
+.header__right {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.content {
+  flex: 1;
+  min-width: 0;
+  padding: var(--sp-5);
+}
+
+@media (max-width: 900px) {
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .sidebar {
+    position: static;
+    height: auto;
+    border-inline-end: 0;
+    border-block-end: 1px solid var(--border);
+  }
+  .sidebar ul {
+    flex-direction: row;
+    overflow-x: auto;
+  }
+  .content {
+    padding: var(--sp-4);
+  }
+}

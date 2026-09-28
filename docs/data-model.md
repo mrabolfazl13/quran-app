@@ -35,6 +35,8 @@ user's memory as never having happened.
 ## Referential integrity
 
 `ayah.chapter` → `surah.number`, `ayah_word.verse_key` → `ayah`,
+`ayah_word.(verse_key, position)` unique (`ayah_word_pos_idx` — position, not
+array order, is a word's id inside a verse),
 `translation.(verse_key, pack_id)` composite primary key, `hifz_segment.item_id`
 → `hifz_item` with `ON DELETE CASCADE` (dropping a memorisation target drops its
 derived segments and anchors) while `hifz_attempt.item_id` also cascades — so
@@ -67,6 +69,53 @@ licensing is confirmed.
 the authoritative text via `core/src/normalize/arabic.ts` and are what integrity
 checks recompute against at import. `text_uthmani` itself is never normalised,
 trimmed or rejoined — the stored string is byte-identical to the pack payload.
+
+## Mushaf placement on `ayah_word`
+
+`ayah_word.page_number` (1..604) and `ayah_word.line_number` (1..15) are **not
+derived columns**: they are provider metadata copied verbatim out of the
+`word-data` pack (`content/word-data/payload.jsonl`, `pageNumber`/`lineNumber`,
+sourced from Quran.com v4 word rows) into
+`desktop/src/content/records.ts` → `tauriGateway`'s `ayah_word` INSERT, and into
+the `AyahWord` contract (`core/src/contracts/quran.ts`) as required fields.
+
+They exist because the offline reader has no other per-word placement:
+`core/src/mushaf/layout.ts` rebuilds the whole Madani grid from these two columns
+plus `ayah.page` as anchor, and `ayah_word_page_idx ON ayah_word(page_number,
+line_number)` serves "which words are on page N". A pack without them cannot
+render a page at runtime.
+
+Both columns are `NOT NULL`, and nothing defaults them:
+
+- `tools/content/src/fetch.ts` treats a capture whose word rows lack an in-range
+  `page_number`/`line_number` as unusable (refetch), `build.ts` fails the build
+  (`mushafInt`), and `validate.ts` fails if the packed rows disagree with the raw
+  rows value-for-value or if the pack does not cover all 604 pages.
+- `desktop/src/content/records.ts:mapWord` rejects a record with a missing,
+  non-integer or out-of-range page/line as a record-shape error, so the pack is
+  not imported.
+- Test fixtures that only exercise verse metadata carry a placement table read
+  off the real captures (`core/tests/hifz/fixtures.ts`,
+  `core/tests/search/fixtures.ts`) and throw for a verse they do not know,
+  rather than guessing page 1.
+
+Range checking lives in the importer and the validator, not in a SQL `CHECK`,
+because the same DDL backs hand-fed fixture databases; the layout engine itself
+still accepts degraded rows (`LayoutWord` in `core/src/mushaf/layout.ts`), which
+is a test-facing escape hatch, not a supported shipped state.
+
+`ayah_word.page_number` is not foreign-keyed to anything: it is cross-checked
+against `ayah.page` by the engine at build time. The shipped data disagrees on 56
+verses (their word rows name a different page than their division page); the
+engine keeps the provider values untouched and reports it as
+`word-page-corrected`, moving 361 tokens onto the anchor page. `docs/mushaf-layout.md`
+does not exist, so the grid rules are documented in the module headers
+(`core/src/mushaf/*.ts`) and tested in `core/tests/mushaf/`.
+
+Schema version stays **1**: v1 has not shipped, so the columns were added to the
+v1 DDL instead of bumping it. A database created before this change has no such
+columns; `ayah_word` is derived content data, so a reimport (or deleting the DB
+file) rebuilds it and user tables are untouched either way.
 
 ## Search
 

@@ -1,0 +1,14 @@
+mmnl12-int8      onnx/model_quantized.onnx      112.83 MB  downloaded  @0.29 MB/s  sha=66fc00f5f29a
+mmnl12-int8      tokenizer.json                  16.29 MB  downloaded  @0.33 MB/s  sha=b60b6b43406a
+mmnl12-int8      tokenizer_config.json               0 MB  downloaded  sha=3f5961b9ac86
+mmnl12-int8      config.json                         0 MB  downloaded  sha=05b570bff786
+me5-small-int8   onnx/model_quantized.onnx      112.83 MB  downloaded  @0.54 MB/s  sha=f80102d3f2a1
+me5-small-int8   tokenizer.json                  16.29 MB  downloaded  @0.32 MB/s  sha=0b44a9d7b51c
+me5-small-int8   tokenizer_config.json               0 MB  downloaded  sha=a1d6bc8734a6
+me5-small-int8   config.json                         0 MB  downloaded  sha=cb9945528867
+minilm-en-int8   onnx/model_quantized.onnx       21.91 MB  downloaded  @0.51 MB/s  sha=afdb6f1a0e45
+minilm-en-int8   tokenizer.json                   0.68 MB  downloaded  @0.18 MB/s  sha=da0e79933b9e
+minilm-en-int8   config.json                         0 MB  downloaded  sha=7135149f7cff
+
+per-candidate on-disk MB: {"mmnl12-int8":129.12,"me5-small-int8":129.12,"minilm-en-int8":22.59}
+wrote I:\Codes\Quran\experiments\results\downloads.json

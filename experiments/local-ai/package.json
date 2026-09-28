@@ -1,0 +1,23 @@
+{
+  "name": "quran-local-ai-experiments",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Isolated measurement harness for OPTIONAL local AI candidates. Not a product dependency: never imported by core/, desktop/ or mobile/. Own node_modules so the repo root stays untouched.",
+  "scripts": {
+    "sysinfo": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sysinfo.ps1",
+    "download": "node scripts/download-models.mjs",
+    "validate-tokenizer": "python scripts/validate_tokenizer.py",
+    "bench": "node scripts/bench-inference.mjs",
+    "embed-corpus": "node scripts/embed-corpus.mjs",
+    "baselines": "node scripts/build-lexical-index.mjs",
+    "eval-retrieval": "node scripts/eval-retrieval.mjs",
+    "build-perturbations": "node scripts/build-perturbations.mjs",
+    "eval-errors": "node scripts/eval-error-classification.mjs",
+    "nn-examples": "node scripts/nearest-neighbours.mjs"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^3.8.1",
+    "onnxruntime-node": "^1.20.1"
+  }
+}

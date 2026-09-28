@@ -16,6 +16,7 @@ data/*.log
 # ONNX graphs plus its own tree are re-downloadable, so they stay off the repo.
 experiments/local-ai/models/
 experiments/local-ai/node_modules/
+experiments/models/
 
 # local databases produced by running the app
 *.sqlite

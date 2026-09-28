@@ -304,3 +304,105 @@ describe('Quran text is never mutated', () => {
     expect(normalizeWord(expected[3]!)).toBe('كفوا');
   });
 });
+
+describe('graded span', () => {
+  // The probe decides what the learner must produce; the same range is what the
+  // engine grades. A perfect segment is a success even inside a long ayah.
+  it('grades a segment step on its own words, not the whole ayah', () => {
+    const w = words('112:1');
+    const result = classifyRecitation({
+      expected: w,
+      produced: w.slice(0, 2),
+      span: { fromWord: 1, toWord: 2 },
+      mode: 'segment',
+      verseKey: '112:1',
+    });
+    expect(result.expectedWordCount).toBe(2);
+    expect(result.correctWordCount).toBe(2);
+    expect(result.accuracy).toBe(1);
+    expect(isExactRecitation(result)).toBe(true);
+  });
+
+  it('reports positions in the ayah, not in the slice', () => {
+    const w = words('112:1');
+    const result = classifyRecitation({
+      expected: w,
+      produced: w.slice(2, 4),
+      span: { fromWord: 3, toWord: 4 },
+      mode: 'segment',
+      verseKey: '112:1',
+    });
+    expect(result.accuracy).toBe(1);
+    expect(result.errors.map((e) => e.expectedPosition)).toEqual([3, 4]);
+    expect(result.errors.map((e) => e.expected)).toEqual([w[2], w[3]]);
+    expect(result.alignment.filter((op) => op.kind === 'match').map((op) => op.expectedIndex)).toEqual([2, 3]);
+  });
+
+  it('attributes a span error to the segment that covers it', () => {
+    const w = words('112:1');
+    const spans = [
+      { position: 1, fromWord: 1, toWord: 2 },
+      { position: 2, fromWord: 3, toWord: 4 },
+    ];
+    const result = classifyRecitation({
+      expected: w,
+      produced: [w[2]!, w[0]!],
+      span: { fromWord: 3, toWord: 4 },
+      segments: spans,
+      mode: 'segment',
+      verseKey: '112:1',
+    });
+    expect(result.errors.every((e) => e.segmentPosition === 2)).toBe(true);
+    expect(result.errors.some((e) => e.kind !== 'correct')).toBe(true);
+  });
+
+  it('a missing-word step is graded on the single blanked word', () => {
+    const w = words('112:1');
+    expect(classifyRecitation({ expected: w, produced: [w[1]!], span: { fromWord: 2, toWord: 2 }, mode: 'missing-word', verseKey: '112:1' }).accuracy).toBe(1);
+    const wrong = classifyRecitation({ expected: w, produced: [w[2]!], span: { fromWord: 2, toWord: 2 }, mode: 'missing-word', verseKey: '112:1' });
+    expect(wrong.expectedWordCount).toBe(1);
+    expect(wrong.correctWordCount).toBe(0);
+    expect(wrong.errors.filter((e) => e.kind !== 'correct')).toHaveLength(1);
+    expect(wrong.firstErrorPosition).toBe(2);
+  });
+
+  it('omits nothing outside the span', () => {
+    const w = words('112:1');
+    const whole = classifyRecitation({ expected: w, produced: w.slice(0, 2), verseKey: '112:1' });
+    const spanned = classifyRecitation({ expected: w, produced: w.slice(0, 2), span: { fromWord: 1, toWord: 2 }, verseKey: '112:1' });
+    expect(whole.errors.filter((e) => e.kind === 'omission')).toHaveLength(2);
+    expect(spanned.errors.filter((e) => e.kind === 'omission')).toHaveLength(0);
+    expect(whole.accuracy).toBe(0.5);
+    expect(spanned.accuracy).toBe(1);
+  });
+
+  it('clamps a span that reaches past the ayah', () => {
+    const w = words('112:1');
+    const clamped = classifyRecitation({ expected: w, produced: w.slice(2, 4), span: { fromWord: 3, toWord: 40 }, verseKey: '112:1' });
+    expect(clamped.expectedWordCount).toBe(2);
+    expect(clamped.accuracy).toBe(1);
+    expect(clamped.errors.map((e) => e.expectedPosition)).toEqual([3, 4]);
+    const whole = classifyRecitation({ expected: w, produced: w, span: { fromWord: 1, toWord: w.length }, verseKey: '112:1' });
+    expect(whole).toMatchObject({ expectedWordCount: 4, accuracy: 1 });
+    expect(whole.errors.map((e) => e.expectedPosition)).toEqual([1, 2, 3, 4]);
+  });
+
+  it('adds recited words outside the span as insertions, never as credit', () => {
+    const w = words('112:1');
+    const result = classifyRecitation({ expected: w, produced: w, span: { fromWord: 1, toWord: 2 }, mode: 'segment', verseKey: '112:1' });
+    expect(result.expectedWordCount).toBe(2);
+    expect(result.matchedWordCount).toBe(2);
+    expect(result.unpairedProducedWordCount).toBe(2);
+    expect(result.correctWordCount).toBe(0);
+    expect(result.accuracy).toBe(0);
+  });
+
+  it('stays byte-identical when no span is given', () => {
+    const w = words('2:255');
+    const produced = w.slice(0, 10).concat(['لموجود']);
+    const a = classifyRecitation({ expected: w, produced, verseKey: '2:255' });
+    const b = classifyRecitation({ expected: w, produced, span: null, verseKey: '2:255' });
+    expect(b).toEqual(a);
+    expect(a.expectedWordCount).toBe(w.length);
+  });
+});

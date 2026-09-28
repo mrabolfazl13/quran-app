@@ -140,6 +140,16 @@ export const TRANSLATIONS: Translation[] = [
 
 /* ---------------- word-level data with roots (synthetic annotation) ---------------- */
 
+/**
+ * Madani mushaf placement of the two fixture ayahs, read from
+ * `data/raw/quran-com/words-1.json` (Al-Fatihah opens on page 1 line 2, the
+ * second ayah on line 3). `AyahWord` requires both numbers because every
+ * shipped word row carries them; the search index never reads them, and grid
+ * behaviour is covered by `core/tests/mushaf`.
+ */
+const SEARCH_FIXTURE_PAGE = 1;
+const SEARCH_FIXTURE_LINE: Record<string, number> = { '1:1': 2, '1:2': 3 };
+
 function mkWord(
   id: number,
   verseKey: VerseKey,
@@ -147,10 +157,14 @@ function mkWord(
   textUthmani: string,
   root: string | null,
 ): AyahWord {
+  const lineNumber = SEARCH_FIXTURE_LINE[verseKey];
+  if (lineNumber === undefined) throw new Error(`mkWord: no captured mushaf line for fixture ayah ${verseKey}`);
   return {
     id,
     verseKey,
     position,
+    pageNumber: SEARCH_FIXTURE_PAGE,
+    lineNumber,
     textUthmani,
     translationEn: null,
     transliteration: null,

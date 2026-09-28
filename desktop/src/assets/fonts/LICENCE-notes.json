@@ -1,0 +1,172 @@
+{
+  "generatedBy": "scripts/fetchFonts.mjs",
+  "runtime": "files are bundled; the app performs zero network requests",
+  "families": [
+    {
+      "family": "Amiri Quran",
+      "purpose": "Mushaf / ayah text (Uthmani-capable Naskh with full diacritics)",
+      "licence": "SIL Open Font License 1.1",
+      "upstreamCss": "https://fonts.googleapis.com/css2?family=Amiri%20Quran"
+    },
+    {
+      "family": "Amiri",
+      "purpose": "Arabic body text: tafsir passages, Arabic notes",
+      "licence": "SIL Open Font License 1.1",
+      "upstreamCss": "https://fonts.googleapis.com/css2?family=Amiri"
+    },
+    {
+      "family": "Vazirmatn",
+      "purpose": "Persian UI chrome",
+      "licence": "SIL Open Font License 1.1",
+      "upstreamCss": "https://fonts.googleapis.com/css2?family=Vazirmatn"
+    },
+    {
+      "family": "Inter",
+      "purpose": "Latin UI chrome, metadata, numbers",
+      "licence": "SIL Open Font License 1.1",
+      "upstreamCss": "https://fonts.googleapis.com/css2?family=Inter"
+    }
+  ],
+  "files": [
+    {
+      "family": "Amiri Quran",
+      "file": "src/assets/fonts/AmiriQuran-400-normal-c628fb50.woff2",
+      "fontWeight": "400",
+      "style": "normal",
+      "bytes": 45680,
+      "upstream": "https://fonts.gstatic.com/s/amiriquran/v19/_Xmo-Hk0rD6DbUL4_vH8Zp5v5i2ssg.woff2",
+      "licence": "SIL Open Font License 1.1",
+      "licenceTextUrl": "https://openfonts.dev/licenses/OFL-1.1.txt"
+    },
+    {
+      "family": "Amiri Quran",
+      "file": "src/assets/fonts/AmiriQuran-400-normal-c244c47f.woff2",
+      "fontWeight": "400",
+      "style": "normal",
+      "bytes": 12276,
+      "upstream": "https://fonts.gstatic.com/s/amiriquran/v19/_Xmo-Hk0rD6DbUL4_vH8Zp5q5i0.woff2",
+      "licence": "SIL Open Font License 1.1",
+      "licenceTextUrl": "https://openfonts.dev/licenses/OFL-1.1.txt"
+    },
+    {
+      "family": "Amiri",
+      "file": "src/assets/fonts/Amiri-400-normal-9c5c7b88.woff2",
+      "fontWeight": "400",
+      "style": "normal",
+      "bytes": 108560,
+      "upstream": "https://fonts.gstatic.com/s/amiri/v30/J7aRnpd8CGxBHpUrtLMA7w.woff2",
+      "licence": "SIL Open Font License 1.1",
+      "licenceTextUrl": "https://openfonts.dev/licenses/OFL-1.1.txt"
+    },
+    {
+      "family": "Amiri",
+      "file": "src/assets/fonts/Amiri-400-normal-232345ea.woff2",
+      "fontWeight": "400",
+      "style": "normal",
+      "bytes": 10444,
+      "upstream": "https://fonts.gstatic.com/s/amiri/v30/J7aRnpd8CGxBHpUgtLMA7w.woff2",
+      "licence": "SIL Open Font License 1.1",
+      "licenceTextUrl": "https://openfonts.dev/licenses/OFL-1.1.txt"
+    },
+    {
+      "family": "Amiri",
+      "file": "src/assets/fonts/Amiri-400-normal-c318e872.woff2",
+      "fontWeight": "400",
+      "style": "normal",
+      "bytes": 19544,
+      "upstream": "https://fonts.gstatic.com/s/amiri/v30/J7aRnpd8CGxBHpUutLM.woff2",
+      "licence": "SIL Open Font License 1.1",
+      "licenceTextUrl": "https://openfonts.dev/licenses/OFL-1.1.txt"
+    },
+    {
+      "family": "Amiri",
+      "file": "src/assets/fonts/Amiri-700-normal-0df4220b.woff2",
+      "fontWeight": "700",
+      "style": "normal",
+      "bytes": 99968,
+      "upstream": "https://fonts.gstatic.com/s/amiri/v30/J7acnpd8CGxBHp2VkaY6zp5yGw.woff2",
+      "licence": "SIL Open Font License 1.1",
+      "licenceTextUrl": "https://openfonts.dev/licenses/OFL-1.1.txt"
+    },
+    {
+      "family": "Amiri",
+      "file": "src/assets/fonts/Amiri-700-normal-e5de4b0f.woff2",
+      "fontWeight": "700",
+      "style": "normal",
+      "bytes": 10860,
+      "upstream": "https://fonts.gstatic.com/s/amiri/v30/J7acnpd8CGxBHp2VkaYxzp5yGw.woff2",
+      "licence": "SIL Open Font License 1.1",
+      "licenceTextUrl": "https://openfonts.dev/licenses/OFL-1.1.txt"
+    },
+    {
+      "family": "Amiri",
+      "file": "src/assets/fonts/Amiri-700-normal-c7292355.woff2",
+      "fontWeight": "700",
+      "style": "normal",
+      "bytes": 20300,
+      "upstream": "https://fonts.gstatic.com/s/amiri/v30/J7acnpd8CGxBHp2VkaY_zp4.woff2",
+      "licence": "SIL Open Font License 1.1",
+      "licenceTextUrl": "https://openfonts.dev/licenses/OFL-1.1.txt"
+    },
+    {
+      "family": "Vazirmatn",
+      "file": "src/assets/fonts/Vazirmatn-400-700-normal-f0d5b444.woff2",
+      "fontWeight": "400 700",
+      "style": "normal",
+      "bytes": 46308,
+      "upstream": "https://fonts.gstatic.com/s/vazirmatn/v16/Dxxo8j6PP2D_kU2muijlGMWWMmk.woff2",
+      "licence": "SIL Open Font License 1.1",
+      "licenceTextUrl": "https://openfonts.dev/licenses/OFL-1.1.txt"
+    },
+    {
+      "family": "Vazirmatn",
+      "file": "src/assets/fonts/Vazirmatn-400-700-normal-fa50cef0.woff2",
+      "fontWeight": "400 700",
+      "style": "normal",
+      "bytes": 21860,
+      "upstream": "https://fonts.gstatic.com/s/vazirmatn/v16/Dxxo8j6PP2D_kU2muijlE8WWMmk.woff2",
+      "licence": "SIL Open Font License 1.1",
+      "licenceTextUrl": "https://openfonts.dev/licenses/OFL-1.1.txt"
+    },
+    {
+      "family": "Vazirmatn",
+      "file": "src/assets/fonts/Vazirmatn-400-700-normal-ce5a4f51.woff2",
+      "fontWeight": "400 700",
+      "style": "normal",
+      "bytes": 34524,
+      "upstream": "https://fonts.gstatic.com/s/vazirmatn/v16/Dxxo8j6PP2D_kU2muijlHcWW.woff2",
+      "licence": "SIL Open Font License 1.1",
+      "licenceTextUrl": "https://openfonts.dev/licenses/OFL-1.1.txt"
+    },
+    {
+      "family": "Inter",
+      "file": "src/assets/fonts/Inter-400-700-normal-f059b71e.woff2",
+      "fontWeight": "400 700",
+      "style": "normal",
+      "bytes": 10252,
+      "upstream": "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2pL7SUc.woff2",
+      "licence": "SIL Open Font License 1.1",
+      "licenceTextUrl": "https://openfonts.dev/licenses/OFL-1.1.txt"
+    },
+    {
+      "family": "Inter",
+      "file": "src/assets/fonts/Inter-400-700-normal-b6db4a06.woff2",
+      "fontWeight": "400 700",
+      "style": "normal",
+      "bytes": 85068,
+      "upstream": "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa25L7SUc.woff2",
+      "licence": "SIL Open Font License 1.1",
+      "licenceTextUrl": "https://openfonts.dev/licenses/OFL-1.1.txt"
+    },
+    {
+      "family": "Inter",
+      "file": "src/assets/fonts/Inter-400-700-normal-6ab57b19.woff2",
+      "fontWeight": "400 700",
+      "style": "normal",
+      "bytes": 48256,
+      "upstream": "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2",
+      "licence": "SIL Open Font License 1.1",
+      "licenceTextUrl": "https://openfonts.dev/licenses/OFL-1.1.txt"
+    }
+  ]
+}

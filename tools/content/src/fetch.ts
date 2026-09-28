@@ -31,9 +31,31 @@ const expectVerses: Expect = (b: any) => isObj(b, 'verses');
 /** divisions rows must carry the requested fields and NOT word arrays */
 const expectDivPage: Expect = (b: any) =>
   expectVerses(b) && b.verses.every((v: any) => 'juz_number' in v && 'text_uthmani' in v && v.words === undefined);
-/** word rows must carry words with char_type */
+/** word rows must carry words with char_type AND the mushaf grid metadata.
+ *
+ * `page_number` / `line_number` are not opt-in `word_fields` on the v4 API —
+ * every word object the provider returns already carries them (measured over
+ * all 114 captures: 83 665 / 83 665 rows have both). So the query is unchanged
+ * and the requirement is enforced here instead: if a future response shape drops
+ * the mushaf columns, this guard fails and `cachedValid` refuses to reuse the
+ * stale capture, rather than the pack silently shipping words with no page. */
 const expectWordPage: Expect = (b: any) =>
-  expectVerses(b) && b.verses.every((v: any) => Array.isArray(v.words) && v.words.length > 0 && v.words.every((w: any) => typeof w.char_type_name === 'string' && typeof w.text_uthmani === 'string'));
+  expectVerses(b) &&
+  b.verses.every(
+    (v: any) =>
+      Array.isArray(v.words) &&
+      v.words.length > 0 &&
+      v.words.every(
+        (w: any) =>
+          typeof w.char_type_name === 'string' &&
+          typeof w.text_uthmani === 'string' &&
+          Number.isInteger(w.page_number) &&
+          (w.page_number as number) >= 1 &&
+          (w.page_number as number) <= 604 &&
+          Number.isInteger(w.line_number) &&
+          (w.line_number as number) >= 1,
+      ),
+  );
 const expectTranslations: Expect = (b: any) => isObj(b, 'translations') && b.translations.length === 6236;
 const expectTafsirs: Expect = (b: any) => isObj(b, 'tafsirs');
 const expectResources: Expect = (b: any) => isObj(b, 'translations') || isObj(b, 'tafsirs');
@@ -68,6 +90,13 @@ async function fetchChapterPages(rel: string, baseQuery: string, chapter: number
 }
 
 const DIVISION_FIELDS = 'text_uthmani,juz_number,page_number,hizb_number,rub_el_hizb_number,ruku_number,manzil_number,sajdah_number';
+/**
+ * Optional word fields only. The mushaf columns the layout engine needs
+ * (`page_number`, `line_number`) are part of the default word object and are
+ * asserted by `expectWordPage`, so this list is deliberately not the place
+ * where they are requested — changing it would re-fetch all 114 captures for
+ * bytes that are already on disk.
+ */
 const WORD_FIELDS = 'text_uthmani,translation,transliteration';
 
 async function main(): Promise<void> {
