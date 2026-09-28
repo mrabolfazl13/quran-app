@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { useApp } from './app-state';
+import { shellName } from './labels';
 import { NAV, ROUTES } from './registry';
 import { navigate, useRoute } from './router';
 import { StateBoundary, useAsync } from '../ui/async';
@@ -44,26 +45,36 @@ function HeaderRight() {
       <OnlineChip />
       {info ? (
         <Chip tone={info.isShippedPath ? 'accent' : 'warn'} title={`${info.label} · ${info.database ?? '—'}`}>
-          {info.mode === 'tauri'
-            ? tr('دسکتاپ', 'Desktop')
-            : tr('مرورگر (توسعه)', 'Browser (dev)')}
+          {shellName(tr, info.mode)}
         </Chip>
       ) : null}
+      {/*
+        Both buttons are icon-only, so `title` alone gives a screen reader
+        nothing: the name lives in `aria-label` (both languages, same `tr`), and
+        the global `:focus-visible` ring in `ui/ui.css` still paints because
+        neither button overrides `outline`/`box-shadow`.
+      */}
       <button
         type="button"
         className="btn btn--ghost"
         onClick={() => setThemePref(themePref === 'dark' ? 'light' : themePref === 'light' ? 'system' : 'dark')}
+        aria-label={tr('تغییر پوسته', 'Change theme')}
         title={tr(`پوسته: ${themePref} — برای تغییر کلیک کنید`, `Theme: ${themePref} — click to change`)}
       >
-        {themePref === 'dark' ? '◐' : themePref === 'light' ? '◑' : '◒'}
+        <span aria-hidden="true">{themePref === 'dark' ? '◐' : themePref === 'light' ? '◑' : '◒'}</span>
       </button>
       <button
         type="button"
         className="btn btn--ghost"
         onClick={() => setLang(lang === 'fa' ? 'en' : 'fa')}
+        aria-label={
+          lang === 'fa'
+            ? tr('تغییر زبان رابط به انگلیسی', 'Change the interface language to English')
+            : tr('تغییر زبان رابط به فارسی', 'Change the interface language to Persian')
+        }
         title={tr('زبان رابط: فارسی / English', 'Interface language: فارسی / English')}
       >
-        {lang === 'fa' ? 'EN' : 'فا'}
+        <span aria-hidden="true">{lang === 'fa' ? 'EN' : 'فا'}</span>
       </button>
     </div>
   );

@@ -135,6 +135,11 @@
 .item-row-wrap:last-child {
   border-bottom: none;
 }
+/* The inline confirmation opens under its own row: it needs a gap of its own,
+   because the row above it ends in a hairline rather than a margin. */
+.item-row-wrap .confirm {
+  margin-top: var(--sp-3);
+}
 
 /* ---- sparkline (real attempt rows only) ---- */
 .spark {

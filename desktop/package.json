@@ -5,9 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm run sync:schema && tsc --noEmit && vite build",
-    "build:vite": "vite build",
+    "build": "npm run sync:schema && tsc --noEmit && npm run build:vite",
+    "build:vite": "npm run sync:schema && vite build && node scripts/stageContent.mjs --to=both",
     "preview": "vite preview",
+    "web:serve": "npm run build:vite && node scripts/serveWeb.mjs",
+    "web:package": "npm run build:vite && node scripts/packageWeb.mjs --zip",
+    "stage:content": "node scripts/stageContent.mjs --to=both",
     "sync:schema": "node scripts/syncSchema.mjs",
     "tauri": "tauri",
     "test": "vitest run"

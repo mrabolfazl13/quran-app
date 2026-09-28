@@ -25,6 +25,13 @@
  *     `pageNumber`/`lineNumber` equal the raw row's `page_number`/`line_number`
  *     row by row and page by page (this is what makes the 604-page grid
  *     rebuildable offline from shipped packs only).
+ *  9. Post-build, the *derived* `mutashabihat-ar` pack: every pair is re-scored
+ *     with the real engine function (`pairTextScore`) over the real core pack
+ *     rows, every quoted phrase must actually occur in both ayat, ordering and
+ *     de-duplication are canonical, `produced_by` is the engine's own constant,
+ *     and the manifest states its parameters, its inherited licence and that
+ *     the rows are computed rather than scholarly. A pair this gate cannot
+ *     reproduce is a corrupted pack, not a "maybe".
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -45,6 +52,13 @@ import {
   API_BASE,
 } from './common.ts';
 import { tokenizeWords, normalizeWord, normalizedText } from '../../../core/src/normalize/arabic.ts';
+import {
+  MIN_SHARED_WORDS,
+  MUTASHABIHAT_PRODUCED_BY,
+  pairTextScore,
+  toSimilarityDoc,
+} from '../../../core/src/mutashabihat/index.ts';
+import type { Ayah } from '../../../core/src/contracts/quran.ts';
 
 export interface ValidationResult {
   errors: string[];
@@ -470,6 +484,172 @@ function detectShift(rows: { text: string }[], orderedKeys: string[], resourceId
 }
 
 // ---------------------------------------------------------------------------
+// post-build: the derived mutashabihat pack must reproduce from the engine
+//
+// `mutashabihat-ar` is not provider data — the build computes it with
+// `core/src/mutashabihat` over the core pack (see `src/mutashabihatPack.ts`).
+// So its gate re-derives every row instead of trusting the payload: the score
+// must equal `pairTextScore` for those two ayat, the quoted phrase must really
+// be a contiguous run of equal canonical tokens in both of them, the row set
+// must be canonical/deduplicated, and the manifest must state its parameters,
+// inherit `quran-core`'s unresolved licence and label itself as computed.
+
+/** The same rounding the build stores with — the engine's presentation format. */
+const round4 = (n: number): number => Number(n.toFixed(4));
+
+/** `chapter:verse` numeric ordering, used only to check stored row order. */
+function compareVerseKeys(a: string, b: string): number {
+  const [ca, va] = a.split(':');
+  const [cb, vb] = b.split(':');
+  const cn = Number(ca) - Number(cb);
+  return cn !== 0 ? cn : Number(va) - Number(vb);
+}
+
+/**
+ * The shipped core pack's ayah rows — the corpus every pair claims to describe.
+ * `null` when that pack is not on disk.
+ */
+function corePackAyahs(): { byKey: Map<string, Ayah>; sha256: string } | null {
+  const p = join(CONTENT_ROOT, 'quran-core', 'payload.jsonl');
+  if (!existsSync(p)) return null;
+  const buf = readFileSync(p);
+  const byKey = new Map<string, Ayah>();
+  for (const line of buf.toString('utf8').split('\n')) {
+    if (!line.trim()) continue;
+    const r = JSON.parse(line) as any;
+    if (r && r._t === 'ayah') byKey.set(String(r.verseKey), r as Ayah);
+  }
+  return { byKey, sha256: sha256hex(buf) };
+}
+
+/** Separator that cannot occur inside a token, for contiguous-run checks. */
+const SEP = String.fromCharCode(1);
+
+type SimilarDoc = ReturnType<typeof toSimilarityDoc>;
+interface CorePack {
+  byKey: Map<string, Ayah>;
+  sha256: string;
+}
+
+/** Manifest-level assertions: self-labelled provenance block, inherited licence, input digest. */
+function checkMutashabihatManifest(id: string, pack: any, core: CorePack, errors: string[]): void {
+  const d = pack.derived;
+  const bad = (m: string): void => {
+    errors.push(`${id}: ${m}`);
+  };
+  if (!d || d.computed !== true) bad('manifest has no derived.computed provenance block — a computed pack must label itself');
+  if (d?.producedBy !== MUTASHABIHAT_PRODUCED_BY) bad(`manifest derived.producedBy is ${JSON.stringify(d?.producedBy)}, expected ${MUTASHABIHAT_PRODUCED_BY}`);
+  if (pack.license?.status !== 'unresolved') bad(`derived from the 'unresolved' quran-core licence, so it may not claim a clearer status (got ${JSON.stringify(pack.license?.status)})`);
+  if (d?.input?.payloadSha256 !== core.sha256) bad(`manifest says the pairs were computed over ${JSON.stringify(d?.input?.payloadSha256)}, but content/quran-core/payload.jsonl hashes to ${core.sha256}`);
+  if (d?.input?.ayahCount !== core.byKey.size) bad(`manifest declares ${JSON.stringify(d?.input?.ayahCount)} input ayahs, the core pack carries ${core.byKey.size}`);
+  if (d?.result?.pairs !== undefined && d.result.pairs !== pack.recordCount) bad(`derived.result.pairs is ${d.result.pairs} but recordCount is ${pack.recordCount}`);
+}
+
+/** Row-level re-derivation. `null` means the row is exactly what the engine gives. */
+function checkMutashabihatRow(r: any, core: CorePack, docOf: (k: string) => SimilarDoc): string | null {
+  const a = String(r.verseKeyA ?? '');
+  const b = String(r.verseKeyB ?? '');
+  const where = `${a} -> ${b}`;
+  if (!core.byKey.has(a) || !core.byKey.has(b)) return `${where}: references a verse that is not in the shipped core pack`;
+  if (compareVerseKeys(a, b) >= 0) return `${where}: rows must be stored canonically, verseKeyA before verseKeyB in mushaf order`;
+  if (r.producedBy !== MUTASHABIHAT_PRODUCED_BY) return `${where}: producedBy is ${JSON.stringify(r.producedBy)}, not the engine constant ${MUTASHABIHAT_PRODUCED_BY}`;
+  const score = r.textScore;
+  if (typeof score !== 'number' || !Number.isFinite(score) || score < 0 || score > 1) return `${where}: textScore ${JSON.stringify(score)} is not a number in 0..1`;
+  const docA = docOf(a);
+  const docB = docOf(b);
+  const engineScore = round4(pairTextScore(docA, docB));
+  if (score !== engineScore) return `${where}: stored textScore ${score} but the engine gives ${engineScore} — stored similarity may not drift from the algorithm`;
+  const setB = new Set(docB.normTokens);
+  let shared = 0;
+  for (const w of new Set(docA.normTokens)) if (setB.has(w)) shared += 1;
+  const minWords = Math.min(docA.wordCount, docB.wordCount);
+  if (shared < (minWords <= 1 ? 1 : MIN_SHARED_WORDS)) return `${where}: only ${shared} shared normalised words, below the engine guard MIN_SHARED_WORDS=${MIN_SHARED_WORDS}`;
+  // The phrase must be a contiguous run of equal canonical tokens in BOTH ayat
+  // — exactly what buildPair slices, and what the screen prints as shared.
+  // Surface tokens are joined by single spaces, so a plain split is exact.
+  const phrase = typeof r.sharedPhrase === 'string' ? r.sharedPhrase.trim() : '';
+  if (phrase !== '') {
+    const needle = phrase.split(' ').map(normalizeWord).join(SEP);
+    if (!docA.normTokens.join(SEP).includes(needle) || !docB.normTokens.join(SEP).includes(needle)) {
+      return `${where}: sharedPhrase ${JSON.stringify(r.sharedPhrase)} is not a contiguous token run of both ayat — a quoted phrase must really be in the text`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Full pass over one computed similar-ayah payload: manifest provenance first,
+ * then every row re-derived. Failures are capped so a systematically wrong
+ * build reports the first twenty rows plus the total instead of 6 000 lines.
+ */
+function validateMutashabihatPack(
+  pack: any,
+  lines: string[],
+  core: CorePack | null,
+  errors: string[],
+  stats: Record<string, number | string>,
+): void {
+  const id = String(pack.id);
+  const fail = (message: string): void => {
+    const shown = errors.filter((e) => e.startsWith(`${id} record #`)).length;
+    if (shown < 20) errors.push(`${id}: ${message}`);
+    else if (shown === 20) errors.push(`${id}: further similar-ayah failures suppressed (first 20 reported)`);
+  };
+  if (!core) {
+    errors.push(`${id}: content/quran-core/payload.jsonl is missing, so not one pair in this pack can be verified`);
+    return;
+  }
+  checkMutashabihatManifest(id, pack, core, errors);
+
+  const docs = new Map<string, SimilarDoc>();
+  const docOf = (k: string): SimilarDoc => {
+    let d = docs.get(k);
+    if (!d) {
+      d = toSimilarityDoc(core.byKey.get(k)!);
+      docs.set(k, d);
+    }
+    return d;
+  };
+
+  const seen = new Set<string>();
+  const covered = new Set<string>();
+  let reDerived = 0;
+  let withPhrase = 0;
+  for (let i = 0; i < lines.length; i += 1) {
+    const r = JSON.parse(lines[i]!) as any;
+    const a = String(r.verseKeyA ?? '');
+    const b = String(r.verseKeyB ?? '');
+    if (seen.has(`${a}|${b}`)) {
+      fail(`record #${i + 1} (${a} -> ${b}): duplicate pair — the mirror row is the same candidate and must not ship twice`);
+      continue;
+    }
+    seen.add(`${a}|${b}`);
+    const problem = checkMutashabihatRow(r, core, docOf);
+    if (problem) {
+      fail(`record #${i + 1} ${problem}`);
+      continue;
+    }
+    reDerived += 1;
+    covered.add(a);
+    covered.add(b);
+    if (typeof r.sharedPhrase === 'string' && r.sharedPhrase.trim() !== '') withPhrase += 1;
+  }
+  stats[`${id}_pairs`] = lines.length;
+  stats[`${id}_reDerivedFromEngine`] = reDerived;
+  stats[`${id}_ayahsWithPair`] = covered.size;
+  stats[`${id}_pairsWithPhrase`] = withPhrase;
+  const declared = pack.derived?.result;
+  if (declared) {
+    if (declared.ayahsWithAtLeastOnePair !== covered.size) {
+      errors.push(`${id}: manifest claims ${declared.ayahsWithAtLeastOnePair} covered ayahs, the payload covers ${covered.size}`);
+    }
+    if (declared.corpusAyahs !== core.byKey.size) {
+      errors.push(`${id}: manifest claims a ${declared.corpusAyahs}-ayah corpus, the shipped core pack has ${core.byKey.size}`);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // post-build: packs must be byte-faithful to raw
 
 export function validatePacks(): ValidationResult | null {
@@ -506,6 +686,8 @@ export function validatePacks(): ValidationResult | null {
   if (rawExists('quran-com/verses-uthmani-simple.json')) {
     for (const s of readRawJson<any>('quran-com/verses-uthmani-simple.json').verses as any[]) simpleText.set(s.verse_key, s.text_uthmani);
   }
+  /** The shipped core pack: the corpus the computed pairs must describe. */
+  const corePackData = corePackAyahs();
   for (const pack of index.packs as any[]) {
     const dir = join(CONTENT_ROOT, pack.id);
     const payloadPath = join(dir, 'payload.jsonl');
@@ -575,6 +757,12 @@ export function validatePacks(): ValidationResult | null {
     }
     stats[`${pack.id}_records`] = lines.length;
     stats[`${pack.id}_byteChecked`] = byteChecked;
+    if (pack.kind === 'linguistic') {
+      // A computed pack has no raw provider row to be byte-compared against:
+      // its gate re-derives every number and every quoted phrase from the
+      // engine and the shipped core pack instead.
+      validateMutashabihatPack(pack, lines, corePackData, errors, stats);
+    }
     if (pack.id === 'word-data') {
       stats.word_data_mushafPages = packMushafPages.size;
       stats.word_data_mushafColumnErrors = mushafErrors;

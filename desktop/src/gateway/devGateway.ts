@@ -1,14 +1,19 @@
 /**
- * DevGateway — browser-only data path for `vite dev`.
+ * The browser data path — used by two shells that differ only in what they
+ * promise:
  *
- * It is NOT a mockup: it loads the same `content/index.json` and the same pack
- * payloads the Tauri app loads (through the Vite dev server), runs the same
- * verification and record-mapping code in `src/content`, and stores the result
- * in memory. Only the query layer differs — arrays and filters instead of SQL —
- * and user rows are persisted to IndexedDB so a reload keeps your notes.
+ * • `dev` (`vite dev`): UI iteration without a native build. It is NOT a
+ *   mockup — it loads the same `content/index.json` and the same pack payloads
+ *   the Tauri app loads (through the Vite dev server), runs the same
+ *   verification and record-mapping code in `src/content`, and stores the
+ *   result in memory. Only the query layer differs: arrays and filters instead
+ *   of SQL. It announces itself, because a reviewer must never mistake it for
+ *   the packaged app.
+ * • `web` (the built app served over HTTP): a shipped path. Nothing here is
+ *   throwaway — what it stores is what the user keeps — so it imports the packs
+ *   it is served on its own, without asking, and wears no dev badge.
  *
- * Its whole reason to exist is UI iteration without a native build, so the shell
- * always shows the "dev shell" badge and `info().isShippedPath` is false.
+ * User rows are persisted to IndexedDB in both, so a reload keeps notes.
  */
 import type {
   AnchorWord,
@@ -30,12 +35,11 @@ import type {
   Surah,
   VerseKey,
 } from '@quran/core';
-import { BACKUP_SCHEMA_VERSION } from '@quran/core';
-import { buildImportPlan } from '../content/importer';
+import { BACKUP_SCHEMA_VERSION, buildEnvelope, computeDataChecksum, serializeEnvelope } from '@quran/core';
+import { buildImportPlan, failedImportReport } from '../content/importer';
 import { createFetchPackSource, type PackSource } from '../content/packSource';
-import { sha256Text } from '../content/hash';
-import { MemorySearchService } from './search';
-import { countShape } from './tauriGateway';
+import { MemorySearchService, collectRawSearchDocs, type RawSearchDoc } from './search';
+import { plansForEnvelope, planRowsFromEnvelope } from './tauriGateway';
 import { SCHEMA_VERSION } from '../db/schema';
 import type {
   AudioTrackRow,
@@ -46,6 +50,7 @@ import type {
   ContentPlan,
   DataGateway,
   GatewayInfo,
+  GatewayMode,
   HomeStats,
   ImportReport,
   JuzSummary,
@@ -192,40 +197,94 @@ async function idbSave(key: string, value: unknown): Promise<void> {
   });
 }
 
-export class DevGateway implements DataGateway {
-  readonly mode = 'dev' as const;
+/** Which shell this browser gateway is standing in for. See the file header. */
+export type BrowserShell = 'dev' | 'web';
 
+export interface DevGatewayOptions {
+  shell?: BrowserShell;
+  /** Where the pack files are served from; `/content` in both shells. */
+  contentBase?: string;
+}
+
+export class DevGateway implements DataGateway {
+  readonly mode: GatewayMode;
+
+  private readonly shell: BrowserShell;
   private content: ContentPlan = emptyPlan();
   private user: UserData = emptyUserData();
   private searchService: MemorySearchService;
-  private source: PackSource = createFetchPackSource('/content');
+  private source: PackSource;
   private saveTimer: number | null = null;
   private ready_ = false;
+  /**
+   * The dev shell's search documents: every bundled translation pack per verse,
+   * raw text kept for excerpts and re-keyed with `matchKey` for matching — the
+   * same `collectRawSearchDocs` the packaged app feeds into `ayah_search`, so a
+   * query that works here works there.
+   */
+  private searchDocs: RawSearchDoc[] = [];
 
-  constructor() {
+  constructor(options: DevGatewayOptions = {}) {
+    this.shell = options.shell ?? 'dev';
+    this.mode = this.shell;
+    this.source = createFetchPackSource(options.contentBase ?? '/content');
     this.searchService = new MemorySearchService(
-      () => this.content.searchDocs,
+      () => this.searchDocs,
       () => this.content.ayahs,
     );
   }
 
   async info(): Promise<GatewayInfo> {
-    return {
-      mode: 'dev',
-      label: 'Browser dev shell — not the packaged app',
-      database: 'IndexedDB (user rows) + in-memory content',
-      contentRoot: this.source.location,
-      schemaVersion: SCHEMA_VERSION,
-      searchBackend: 'dev-index',
-      isShippedPath: false,
-    };
+    return this.shell === 'web'
+      ? {
+          mode: 'web',
+          label: 'Web app served over HTTP — same code, browser storage',
+          database: 'IndexedDB (user rows) + content imported from this origin',
+          contentRoot: this.source.location,
+          schemaVersion: SCHEMA_VERSION,
+          searchBackend: 'memory-index',
+          isShippedPath: true,
+        }
+      : {
+          mode: 'dev',
+          label: 'Browser dev shell — not the packaged app',
+          database: 'IndexedDB (user rows) + in-memory content',
+          contentRoot: this.source.location,
+          schemaVersion: SCHEMA_VERSION,
+          searchBackend: 'memory-index',
+          isShippedPath: false,
+        };
   }
 
   async ready(): Promise<void> {
     if (this.ready_) return;
     const stored = await idbLoad<UserData>('v1');
     if (stored) this.user = { ...emptyUserData(), ...stored };
+    // The corpus is never persisted on this path: it lives in memory, so every
+    // load of the installed web app has to read it from its own origin before
+    // the first screen can answer. The packaged app doesn't — SQLite already
+    // holds it — which is exactly why the import belongs here and not on a
+    // button: a user who installs the web build should never be asked to
+    // rebuild the app's own shipped data.
+    if (this.shell === 'web') await this.autoImport();
     this.ready_ = true;
+  }
+
+  /**
+   * Import on startup without letting a bad pack break startup. A failed import
+   * leaves `content` empty, which the UI already renders as the honest "no
+   * content" state with a retry button, and the stored report says why.
+   */
+  private async autoImport(): Promise<void> {
+    if (this.content.ayahs.length > 0) return;
+    try {
+      await this.importFromContent();
+    } catch (err) {
+      // 'unavailable' is the honest stage: nothing was read, so nothing was
+      // checksummed, counted or written.
+      this.user.importReport = failedImportReport('unavailable', String(err instanceof Error ? err.message : err));
+      this.touch();
+    }
   }
 
   async close(): Promise<void> {
@@ -258,12 +317,16 @@ export class DevGateway implements DataGateway {
     };
     next.words.sort((a, b) => (a.verseKey === b.verseKey ? a.position - b.position : a.verseKey.localeCompare(b.verseKey)));
     this.content = next;
+    this.searchDocs = collectRawSearchDocs(next.ayahs, next.translations, next.packs);
+    this.searchService.reset();
     this.user.importReport = report;
     this.touch();
   }
 
   async resetContent(): Promise<void> {
     this.content = emptyPlan();
+    this.searchDocs = [];
+    this.searchService.reset();
     this.user.importReport = null;
     this.touch();
   }
@@ -613,8 +676,8 @@ export class DevGateway implements DataGateway {
     return this.searchService.search(query, options);
   }
 
-  async searchBackend(): Promise<'dev-index'> {
-    return 'dev-index';
+  async searchBackend(): Promise<'memory-index'> {
+    return 'memory-index';
   }
 
   async searchBackendNote(): Promise<string | null> {
@@ -661,18 +724,16 @@ export class DevGateway implements DataGateway {
       sessions: this.user.sessions,
       journeys: [],
       reflections: [],
-      dailyPlans: this.user.plans,
+      dailyPlans: plansForEnvelope(this.user.plans),
     };
-    const checksum = await sha256Text(JSON.stringify(data));
-    return {
-      schemaVersion: BACKUP_SCHEMA_VERSION,
+    // Sealed by core, exactly as the installed app does it: a dev-shell file
+    // and a `.quranbak` from the Tauri build must verify with one rule.
+    return buildEnvelope(data, {
+      app: 'quran-desktop',
+      version: '0.1.0',
+      platform: 'desktop',
       minReaderVersion: 1,
-      createdAt: new Date().toISOString(),
-      producedBy: { app: 'quran-desktop', version: '0.1.0', platform: 'desktop' },
-      checksum,
-      counts: countShape(data),
-      data,
-    };
+    }).envelope;
   }
 
   async importBackup(envelope: BackupEnvelope): Promise<MigrationResult> {
@@ -682,7 +743,7 @@ export class DevGateway implements DataGateway {
     if (envelope.schemaVersion < BACKUP_SCHEMA_VERSION) {
       return { ok: false, from: envelope.schemaVersion, error: `backup v${envelope.schemaVersion} needs a migration; only v${BACKUP_SCHEMA_VERSION} can be read directly` };
     }
-    const digest = await sha256Text(JSON.stringify(envelope.data));
+    const digest = computeDataChecksum(envelope.data);
     if (digest.toLowerCase() !== envelope.checksum.trim().toLowerCase()) {
       return { ok: false, from: envelope.schemaVersion, error: 'backup checksum does not match its contents — the file is corrupt or edited' };
     }
@@ -701,7 +762,7 @@ export class DevGateway implements DataGateway {
       attempts: (envelope.data.recallAttempts as RecallAttempt[]) ?? [],
       groups: (envelope.data.confusionGroups as ConfusionGroup[]) ?? [],
       sessions: (envelope.data.sessions as HifzSession[]) ?? [],
-      plans: (envelope.data.dailyPlans as { date: string; payload: string; generatedAt: string }[]) ?? [],
+      plans: planRowsFromEnvelope(envelope.data.dailyPlans ?? []),
     };
     this.touch();
     return { ok: true, from: envelope.schemaVersion, to: BACKUP_SCHEMA_VERSION, warnings: [] };
@@ -721,7 +782,7 @@ export class DevGateway implements DataGateway {
   }
 
   async writeBackupFile(name: string, envelope: BackupEnvelope): Promise<string> {
-    const json = JSON.stringify(envelope);
+    const json = serializeEnvelope(envelope);
     const index = readBackupIndex();
     index[name] = { createdAt: envelope.createdAt || new Date().toISOString(), bytes: byteLength(json), json };
     writeBackupIndex(index);

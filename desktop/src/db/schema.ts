@@ -19,9 +19,27 @@ export const META_KEYS = {
   createdAt: 'created_at',
   migrations: 'applied_migrations',
   searchBackend: 'search_backend',
+  /**
+   * Which normalisation the `ayah_search` columns were written with (see
+   * `SEARCH_INDEX_KEY_VERSION` in `core/src/search`). A stored value below the
+   * current one means the derived index predates the rules the query uses, so
+   * the gateway rebuilds it from `ayah` + `translation` before serving a search.
+   */
+  searchIndexKeyVersion: 'search_index_key_version',
   lastImport: 'last_import_json',
   lastImportAt: 'last_import_at',
 } as const;
+
+/**
+ * Stand-in for the `ayah_search` FTS5 virtual table on a SQLite build without
+ * the FTS5 module. Same name, same columns, so the import writer and the
+ * normalised substring read path are unchanged; the only thing lost is the
+ * MATCH/bm25 accelerator on the Arabic column, which `SqliteSearchService`
+ * skips in that case and `searchBackend: 'like'` reports.
+ */
+export const SEARCH_FALLBACK_DDL =
+  'CREATE TABLE IF NOT EXISTS ayah_search (' +
+  'verse_key TEXT PRIMARY KEY, arabic TEXT NOT NULL, translation_en TEXT NOT NULL, translation_fa TEXT NOT NULL)';
 
 export interface SqlValue {
   [column: string]: unknown;
@@ -132,9 +150,14 @@ export async function ensureSchema(client: SqlClient, databaseLabel: string | nu
         const text = String(err);
         if (/fts5|virtual table/i.test(stmt) && /no such module|unrecognized|syntax/i.test(text)) {
           ftsOk = false;
+          // The read path still needs the table to exist: create the plain
+          // stand-in so the import writer and the normalised substring matching
+          // work unchanged, and only the MATCH/bm25 accelerator is missing.
+          await client.execute(SEARCH_FALLBACK_DDL).catch(() => undefined);
           notes.push(
-            'SQLite in this build has no FTS5 module, so the `ayah_search` virtual table was not created. ' +
-              'Search runs on the normalised LIKE fallback and is labelled as such everywhere.',
+            'SQLite in this build has no FTS5 module, so the `ayah_search` virtual table was replaced by a plain table ' +
+              'with the same columns. Search runs on normalised substring (LIKE) matching over every column, including ' +
+              'Arabic, and is labelled as such everywhere.',
           );
           continue;
         }
@@ -163,13 +186,17 @@ export async function ensureSchema(client: SqlClient, databaseLabel: string | nu
   }
 
   // Existing database at found <= SCHEMA_VERSION: apply the chain.
+  // `ayah_search` is reported from what is actually in the file: an FTS5 virtual
+  // table answers `fts5`, a plain stand-in table (or nothing) answers `like`.
+  // The gateway rebuilds whichever exists into the current matching form before
+  // the first search, so a stored index can never outlive the rules it needs.
   const migrationsRan: number[] = [];
   let ftsProbe: 'fts5' | 'like' = 'like';
   try {
-    const hit = await client.select<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type IN ('table','view') AND name = 'ayah_search'",
+    const hit = await client.select<{ sql: string | null }>(
+      "SELECT sql AS sql FROM sqlite_master WHERE type IN ('table','view') AND name = 'ayah_search'",
     );
-    ftsProbe = hit.length > 0 ? 'fts5' : 'like';
+    ftsProbe = /fts5/i.test(hit[0]?.sql ?? '') ? 'fts5' : 'like';
   } catch {
     ftsProbe = 'like';
   }

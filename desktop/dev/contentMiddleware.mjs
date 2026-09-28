@@ -12,7 +12,12 @@ const MIME = {
   '.jsonl': 'application/x-ndjson; charset=utf-8',
 };
 
-function safeRel(rel) {
+/**
+ * Reject anything that is not a plain relative path inside the content root.
+ * Exported because the web build's static server serves the same directory and
+ * must apply the identical rule — two copies drift, one copy cannot.
+ */
+export function safeRel(rel) {
   if (!rel || rel.length > 512) return false;
   if (rel.includes('\0') || /^[a-zA-Z]:/.test(rel) || rel.startsWith('/')) return false;
   return rel.split('/').every((seg) => seg && seg !== '.' && seg !== '..');

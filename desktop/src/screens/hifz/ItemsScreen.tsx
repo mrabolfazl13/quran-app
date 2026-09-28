@@ -2,10 +2,11 @@
  * /hifz/items — the memorisation set and its memory fingerprints.
  *
  * Add via `addHifzItem`, change status via `setHifzItemStatus`, delete via
- * `removeHifzItem` — after telling the learner exactly how many stored attempts
- * the row carries. The "بافت حافظه" disclosure calls `deriveSegmentation`
- * (core derives it on demand — the facade deliberately does not persist
- * structure) and shows the stored `hifzSegments` / `anchorWords` /
+ * `removeHifzItem` — only after `ConfirmBox` (the app's own confirm component,
+ * shared with the Me area) has listed what is lost and the learner has ticked
+ * it; there is no native dialog here. The "بافت حافظه" disclosure calls
+ * `deriveSegmentation` (core derives it on demand — the facade deliberately does
+ * not persist structure) and shows the stored `hifzSegments` / `anchorWords` /
  * `hifzTransitions` rows beside it, empty when none exist.
  */
 import { useState } from 'react';
@@ -13,7 +14,8 @@ import type { AnchorWord, HifzItem, HifzItemStatus, HifzSegment, HifzTransition,
 import type { SegmentationOutcome } from '../../engine/hifzEngine';
 import { useApp } from '../../app/app-state';
 import { StateBoundary, useAsync } from '../../ui/async';
-import { Button, Chip, Field, LinkButton, Meter, Panel } from '../../ui/primitives';
+import { Button, Chip, Field, LinkButton, Meter, NumRange, Panel } from '../../ui/primitives';
+import { ConfirmBox } from '../me/shared';
 import {
   AyahLink,
   BandTag,
@@ -177,6 +179,7 @@ function AddPanel({ onAdded }: { onAdded: () => void }) {
 function ItemRow({ item, attemptCount, onChanged }: { item: HifzItem; attemptCount: number; onChanged: () => void }) {
   const { tr, gateway } = useApp();
   const [open, setOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
@@ -196,15 +199,11 @@ function ItemRow({ item, attemptCount, onChanged }: { item: HifzItem; attemptCou
 
   async function remove(): Promise<void> {
     if (!gateway) return;
-    const loss = tr(
-      `حذف این مورد ${attemptCount} تلاشِ مرورِ ذخیره‌شده، باندها و زمان‌بندی آن را پاک می‌کند. ادامه؟`,
-      `Removing this item deletes its ${attemptCount} stored recall attempts, band and schedule. Continue?`,
-    );
-    if (!window.confirm(loss)) return;
     setBusy(true);
     setError(null);
     try {
       await gateway.removeHifzItem(item.id);
+      setConfirming(false);
       onChanged();
     } catch (cause) {
       setError(cause);
@@ -243,12 +242,37 @@ function ItemRow({ item, attemptCount, onChanged }: { item: HifzItem; attemptCou
             ))}
           </select>
         </label>
-        <Button busy={busy} variant="danger" onClick={() => void remove()}>{tr('حذف', 'Remove')}</Button>
+        <Button
+          busy={busy}
+          variant="danger"
+          aria-expanded={confirming}
+          onClick={() => setConfirming((c) => !c)}
+        >
+          {tr('حذف', 'Remove')}
+        </Button>
         <Button onClick={() => setOpen((o) => !o)} aria-expanded={open}>
           {tr('بافت حافظه', 'Memory fingerprint')}
         </Button>
       </div>
       {error ? <p className="field__error" role="alert" dir="auto">{error instanceof Error ? error.message : String(error)}</p> : null}
+      {/* The warning names the stored rows that go with this item — a native
+          confirm cannot carry that, and it is not themed or RTL either. */}
+      {confirming ? (
+        <ConfirmBox
+          title={tr(`حذف آیهٔ ${item.verseKey} از مجموعهٔ حفظ`, `Remove ${item.verseKey} from the hifz set`)}
+          consequences={[
+            tr(
+              `${attemptCount} تلاشِ مرورِ ذخیره‌شدهٔ این مورد پاک می‌شود`,
+              `${attemptCount} stored recall attempts for this item are deleted`,
+            ),
+            tr('باندها و زمان‌بندی مرور آن بازنویسی می‌شوند', 'its band and review schedule are rewritten'),
+            tr('متن آیات و بسته‌های محتوا دست‌نخورده می‌مانند', 'the ayah text and the content packs are untouched'),
+          ]}
+          confirmLabel={tr('حذف این مورد', 'Remove this item')}
+          busy={busy}
+          onConfirm={() => void remove()}
+        />
+      ) : null}
       {open ? <Fingerprint itemId={item.id} /> : null}
     </li>
   );
@@ -283,7 +307,7 @@ function Fingerprint({ itemId }: { itemId: string }) {
         'موتور بدون متن آیه ساختار نمی‌سازد؛ پیش‌تر یک بستهٔ متنی وارد کرده‌اید؟',
         'The engine derives nothing without the ayah text — have you imported a content pack?',
       )}
-      emptyAction={<LinkButton to="/me/data">{tr('وضعیت داده', 'Data health')}</LinkButton>}
+      emptyAction={<LinkButton to="/me/content">{tr('وضعیت داده', 'Data health')}</LinkButton>}
       isEmpty={(value) => value.derived === null && value.storedSegments.length === 0 && value.storedAnchors.length === 0 && value.storedTransitions.length === 0}
       onRetry={() => fp.refresh()}
       skeleton={<div className="state state--loading">{tr('موتور در حال ساخت پاره‌ها و لنگرهاست…', 'Deriving segments and anchors…')}</div>}
@@ -303,7 +327,7 @@ function Fingerprint({ itemId }: { itemId: string }) {
                     <li key={s.id}>
                       <span className="num faint">{s.position + 1}.</span>{' '}
                       <span className="quran-text" dir="rtl">{s.text}</span>{' '}
-                      <Chip tone="neutral">{tr('واژه', 'words')} <span className="num">{s.fromWord}–{s.toWord}</span></Chip>
+                      <Chip tone="neutral">{tr('واژه', 'words')} <NumRange className="num" from={s.fromWord} to={s.toWord} /></Chip>
                       {s.meaningFa ? <span className="muted rtl-iso"> {s.meaningFa}</span> : null}
                     </li>
                   ))}
@@ -369,7 +393,7 @@ function Fingerprint({ itemId }: { itemId: string }) {
             ) : (
               <ul className="list mono">
                 {value.storedSegments.map((s) => (
-                  <li key={s.id}>segment {s.position}: {s.fromWord}–{s.toWord} · {tr('پایداری', 'stability')} {s.stability} · {s.text}</li>
+                  <li key={s.id}>segment {s.position}: <NumRange from={s.fromWord} to={s.toWord} /> · {tr('پایداری', 'stability')} {s.stability} · {s.text}</li>
                 ))}
                 {value.storedAnchors.map((a) => (
                   <li key={a.id}>anchor w{a.wordPosition} ({a.role}) · {tr('پایداری', 'stability')} {a.stability} · {a.text}</li>
@@ -382,6 +406,9 @@ function Fingerprint({ itemId }: { itemId: string }) {
           </details>
 
           <div className="row">
+            {/* `?item=` is read by `/hifz/session` (RouteProps.query): the runner
+                starts today’s engine-built session and opens it on this item’s
+                step, saying so when the plan holds no step for it. */}
             <LinkButton to={`/hifz/session?item=${encodeURIComponent(itemId)}`} className="btn">
               {tr('تمرین در نشست', 'Drill in a session')}
             </LinkButton>

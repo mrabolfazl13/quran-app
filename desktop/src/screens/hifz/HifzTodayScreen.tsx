@@ -11,7 +11,7 @@ import type { HifzFacadeStatus } from '../../engine/hifzFacade';
 import { useApp } from '../../app/app-state';
 import { StateBoundary, useAsync } from '../../ui/async';
 import { Chip, LinkButton, Panel } from '../../ui/primitives';
-import { BandTag, AyahLink, useHifzFacade } from './shared';
+import { BandTag, AyahLink, reviewReason, useHifzFacade } from './shared';
 
 interface TodayData {
   plan: DailyPlan;
@@ -142,7 +142,7 @@ function Today({ plan, items }: { plan: DailyPlan; items: HifzItem[] }) {
                 {plan.reviewItems.slice(0, 6).map((entry) => (
                   <li key={entry.itemId}>
                     <AyahLink verseKey={entry.verseKey} />{' '}
-                    <span className="faint mono" dir="auto">{entry.reason}</span>
+                    <span className="faint" dir="auto">{reviewReason(tr, entry.reason)}</span>
                   </li>
                 ))}
               </ul>

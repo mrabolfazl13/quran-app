@@ -63,7 +63,7 @@ function Report({ session, attempts }: { session: HifzSession; attempts: RecallA
         <dl className="hifz-kv">
           <dt>{tr('آغاز', 'started')}</dt><dd className="mono ltr-iso">{fmtDateTime(session.startedAt)}</dd>
           <dt>{tr('پایان', 'ended')}</dt><dd className="mono ltr-iso">{session.endedAt ? fmtDateTime(session.endedAt) : tr('تمام نشده', 'not finished')}</dd>
-          <dt>{tr('گام‌ها', 'steps')}</dt><dd className="num">{attemptedCount}/{session.steps.length} <span className="muted rtl-iso">ثبت‌شده</span></dd>
+          <dt>{tr('گام‌ها', 'steps')}</dt><dd className="num">{attemptedCount}/{session.steps.length} <span className="muted rtl-iso">{tr('ثبت‌شده', 'recorded')}</span></dd>
           <dt>{tr('زمان تلاش‌ها', 'attempt time')}</dt><dd className="num">{fmtDuration(tr, totalDuration)}</dd>
         </dl>
       </Panel>

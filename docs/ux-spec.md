@@ -247,8 +247,8 @@ silently substituted. Five such labels exist today.
    `SearchScreen.tsx:185–194` always renders a `Chip tone="info"` containing the
    raw backend id in `.mono` plus `backendLabel()` (`SearchScreen.tsx:47–58`):
    `core-engine` → "رتبه‌بندی قطعی موتور core", `sqlite-fts5` → "SQLite
-   full-text search (FTS5)", `like` → "مطابق‌سازی ساده، بدون FTS5", `dev-index`
-   → "نمایهٔ پوستهٔ توسعه". The id comes from `gateway.searchBackend()`
+   full-text search (FTS5)", `like` → "مطابق‌سازی ساده، بدون FTS5", `memory-index`
+   → "نمایهٔ در حافظهٔ همین صفحه". The id comes from `gateway.searchBackend()`
    (`desktop/src/gateway/tauriGateway.ts:333–337`,
    `devGateway.ts:616–617`).
 3. **"Why the stronger backend was skipped".** Condition:

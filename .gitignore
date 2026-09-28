@@ -23,3 +23,10 @@ experiments/models/
 *.sqlite-journal
 *.wal
 *.shm
+*.sqlite-shm
+
+# staged copies of the generated packs (scripts/stageContent.mjs). They are
+# byte-for-byte copies of `content/`, which is itself a build product, so
+# committing them would only let the shipped bytes drift from the validated
+# ones.
+desktop/src-tauri/content/

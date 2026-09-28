@@ -21,8 +21,32 @@ serde_json = "1"
 sha2 = "0.10"
 
 [profile.release]
-codegen-units = 1
-lto = true
+# Measured on this machine, 2026-09-28: the abort is a commit-charge
+# exhaustion, not an optimisation cost. With `lto = "thin"`,
+# `codegen-units = 16` and `opt-level = 0` already in place below, rustc still
+# died on `windows v0.62.2` with "memory allocation of 1266720 bytes failed"
+# (0xc0000409) — a 1.2 MB request, which fails only when the process has no
+# commit left at all. So the setting that matters is how much of the 8 GB is
+# free when the build starts, not how hard rustc optimises. Fat LTO was tried
+# first and is what surfaced the limit; thin LTO over 16 units is also a
+# rounding error in binary size next to the 28 MB of content packs.
+codegen-units = 16
+lto = "thin"
 opt-level = "s"
 strip = true
 panic = "abort"
+
+# The `windows`/`webview2` binding crates are thousands of thin `extern "system"`
+# wrappers: optimising them buys nothing at runtime and they are what exhausts
+# memory first, so they compile at opt-level 0 (see the comment above).
+[profile.release.package.windows-sys]
+opt-level = 0
+
+[profile.release.package.windows]
+opt-level = 0
+
+[profile.release.package.windows-core]
+opt-level = 0
+
+[profile.release.package.webview2-com-sys]
+opt-level = 0

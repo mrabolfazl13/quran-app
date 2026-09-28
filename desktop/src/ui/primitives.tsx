@@ -130,7 +130,9 @@ export function Meter({ value, label, tone = 'accent' }: { value: number; label?
   const percent = Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0)) * 100;
   return (
     <span className={`meter meter--${tone}`} title={`${Math.round(percent)}%`}>
-      <span className="meter__fill" style={{ width: `${percent}%` }} />
+      <span className="meter__track">
+        <span className="meter__fill" style={{ width: `${percent}%` }} />
+      </span>
       {label ? <span className="meter__label">{label}</span> : null}
     </span>
   );
@@ -148,4 +150,17 @@ export function Spinner({ label }: { label?: string }) {
 /** The ayah number as a closed-form badge — the mushaf's own marker shape. */
 export function AyahBadge({ verse }: { verse: number | string }) {
   return <span className="ayah-badge" aria-label={`آیه ${verse}`} title={`${verse}`}>{verse}</span>;
+}
+
+/**
+ * A numeric range inside an RTL line. An en-dash is a bidi neutral, so without
+ * isolation the paragraph direction wins and "2–49" is laid out with 49 on the
+ * left — which reads backwards, because digits always read left to right.
+ */
+export function NumRange({ from, to, className }: { from: ReactNode; to: ReactNode; className?: string }) {
+  return (
+    <span dir="ltr" className={className}>
+      {from}–{to}
+    </span>
+  );
 }

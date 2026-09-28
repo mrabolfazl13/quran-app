@@ -3,9 +3,25 @@
  *
  * SQLite runs in the Rust layer (`tauri-plugin-sql` with the `sqlite` feature);
  * this module is the only place that writes SQL. Reads return contract-shaped
- * objects; writes go through a single serialised queue, because the plugin hands
- * every call to one pooled connection and `BEGIN`/`COMMIT` interleaving would
- * otherwise corrupt a transaction.
+ * objects.
+ *
+ * Every statement — reads included — goes through one promise queue, and that
+ * is a correctness requirement, not a performance choice. The plugin runs each
+ * `execute()`/`select()` as `pool.<statement>()`: it checks a connection out of
+ * a sqlx pool sized to the CPU count, runs one statement on it, then hands the
+ * connection back. So two overlapping calls can land on two different SQLite
+ * connections, and a `BEGIN … COMMIT` spread over separate calls is then not a
+ * transaction at all: the `BEGIN` is on connection A and the inserts are on
+ * connection B. Measured on the installed app with one click and no external
+ * reader — the app's own concurrent `COUNT(*)` reads were enough — the import
+ * died with `(code: 5) database is locked`, the `ROLLBACK` reported
+ * `no transaction is active`, and a partial content table was left behind.
+ *
+ * Serialising the calls makes the pool never need a second connection: with one
+ * statement in flight at a time sqlx reuses the same connection, so a manual
+ * transaction spanning `db.execute()` calls becomes real again. Inside an
+ * enqueued task, use `rawClient()` — the queued client would re-enter the queue
+ * behind the very task it is running in and deadlock.
  */
 import Database from '@tauri-apps/plugin-sql';
 import { invoke } from '@tauri-apps/api/core';
@@ -29,15 +45,24 @@ import type {
   Surah,
   VerseKey,
 } from '@quran/core';
-import { BACKUP_SCHEMA_VERSION } from '@quran/core';
-import { ensureSchema, SCHEMA_VERSION, type SqlClient } from '../db/schema';
+import { BACKUP_SCHEMA_VERSION, buildEnvelope, canonicalJsonStringify, computeDataChecksum, serializeEnvelope } from '@quran/core';
+import { ensureSchema, META_KEYS, SCHEMA_VERSION, type SqlClient } from '../db/schema';
+import { insertRows } from './batchInsert';
 import { buildImportPlan } from '../content/importer';
 import {
   createTauriPackSource,
   type PackSource,
   type TauriInvoke,
 } from '../content/packSource';
-import { SqliteSearchService, type SearchService } from './search';
+import {
+  SEARCH_INDEX_VERSION,
+  SqliteSearchService,
+  buildSearchIndexRows,
+  collectRawSearchDocs,
+  ensureSearchIndexForm,
+  writeSearchIndexRows,
+  type SearchService,
+} from './search';
 import type {
   AyahRow,
   AyahWordRow,
@@ -247,6 +272,7 @@ export class TauriGateway implements DataGateway {
   readonly mode = 'tauri' as const;
 
   private db: Database | null = null;
+  private raw_: SqlClient | null = null;
   private sqlClient: SqlClient | null = null;
   private source: PackSource | null = null;
   private searchService: SearchService | null = null;
@@ -254,7 +280,11 @@ export class TauriGateway implements DataGateway {
   private contentRoot: string | null = null;
   private queue: Promise<unknown> = Promise.resolve();
 
-  /** Serialise every write; plugin-sql shares one connection per path. */
+  /**
+   * Run `task` only after every previously queued statement has finished.
+   * See the module header: this is what keeps the plugin's connection pool at a
+   * single connection, and therefore what makes cross-call transactions real.
+   */
   private enqueue<T>(task: () => Promise<T>): Promise<T> {
     const next = this.queue.then(task, task);
     this.queue = next.catch(() => undefined);
@@ -284,42 +314,82 @@ export class TauriGateway implements DataGateway {
     if (this.db) return;
     const db = await Database.load(DB_FILE);
     this.db = db;
-    const client: SqlClient = {
+    const raw: SqlClient = {
       select: <TRow>(sql: string, params?: unknown[]) => db.select<TRow>(sql, params),
       execute: (sql: string, params?: unknown[]) => db.execute(sql, params).then((r) => r.rowsAffected),
     };
-    this.sqlClient = client;
+    this.raw_ = raw;
+    this.sqlClient = this.queued(raw);
+    const client = this.sqlClient;
+    // `PRAGMA foreign_keys` is a per-connection setting: `db.sql` issues it only
+    // when the file is created. Re-asserting it on every open is what makes the
+    // RESTRICT rules the content/reset paths rely on real for an existing
+    // database — and it sticks because the queue keeps the plugin on one
+    // connection instead of letting a later statement run somewhere else.
+    await client.execute('PRAGMA foreign_keys = ON');
     this.schema = await ensureSchema(client, DB_FILE);
     this.source = createTauriPackSource(invoke as TauriInvoke, this.contentRoot);
     this.searchService = await this.pickSearch(client);
+    await this.ensureSearchIndexKeyForm();
     await this.ensureProfile();
+  }
+
+  /** Wrap an unqueued client so every statement waits for the one before it. */
+  private queued(raw: SqlClient): SqlClient {
+    return {
+      select: <TRow>(sql: string, params?: unknown[]) => this.enqueue(() => raw.select<TRow>(sql, params)),
+      execute: (sql: string, params?: unknown[]) => this.enqueue(() => raw.execute(sql, params)),
+    };
   }
 
   /**
    * The shipped path keeps the corpus in SQLite and searches it there, so the
-   * 78k word rows never have to be materialised in the webview. The core engine
-   * (`core/src/search`, same ranking the Android/web phases will use) is wired
-   * through `CoreEngineSearchService` in the dev shell, where the rows are
-   * already in memory — see `src/gateway/devGateway.ts`.
+   * 78k word rows never have to be materialised in the webview.
+   *
+   * `core/src/search` is not a second backend running here: what this app takes
+   * from it is its matching space (`matchKey` / `matchTokens`), which is what
+   * the `ayah_search` columns and the query are both written in. The dev shell
+   * (`devGateway.ts`) holds the same keys in memory instead of in SQLite.
    */
   private async pickSearch(client: SqlClient): Promise<SearchService> {
     const backend = this.schema?.searchBackend === 'fts5' ? 'sqlite-fts5' : 'like';
     const note =
       backend === 'sqlite-fts5'
-        ? 'SQLite FTS5 over ayah_search; core/src/search is used by the dev shell'
-        : 'FTS5 module unavailable in this SQLite build — literal LIKE matching is active';
+        ? 'SQLite ayah_search: FTS5 bm25 order on the normalised Arabic column, normalised substring (LIKE) matching on the Persian and English translation columns'
+        : 'FTS5 module unavailable in this SQLite build — normalised substring (LIKE) matching on every column, Arabic included';
     return new SqliteSearchService(client, backend, note);
   }
 
+  /**
+   * Self-heal a stale derived search index on the way up. The whole rule lives
+   * in `ensureSearchIndexForm` (`gateway/search.ts`), which the integration
+   * suite exercises against a real SQLite file; this is the serialised call site.
+   */
+  private async ensureSearchIndexKeyForm(): Promise<void> {
+    await this.enqueue(() => ensureSearchIndexForm(this.rawClient()));
+  }
+
   async close(): Promise<void> {
-    await this.db?.close();
-    this.db = null;
-    this.sqlClient = null;
+    await this.enqueue(async () => {
+      await this.db?.close();
+      this.db = null;
+      this.sqlClient = null;
+      this.raw_ = null;
+    });
   }
 
   private client(): SqlClient {
     if (!this.sqlClient) throw new Error('database is not open yet');
     return this.sqlClient;
+  }
+
+  /**
+   * The unqueued client, for use *inside* an `enqueue` task only. Calling it
+   * from outside the queue would let statements overlap again.
+   */
+  private rawClient(): SqlClient {
+    if (!this.raw_) throw new Error('database is not open yet');
+    return this.raw_;
   }
 
   private async ensureProfile(): Promise<void> {
@@ -350,17 +420,43 @@ export class TauriGateway implements DataGateway {
     return this.source;
   }
 
+  /**
+   * Validate every pack, then write them as one transaction.
+   *
+   * A plan that validated but failed to land is still a report the UI can
+   * render: the write stage has its own `issue`, so the screen shows why the
+   * database refused it instead of the click doing nothing. The transaction is
+   * rolled back in that case, which is why the content counts stay at whatever
+   * was there before rather than a partial import.
+   */
   async importFromContent(): Promise<ImportReport> {
     const source = await this.packSource();
     const { report, plan } = await buildImportPlan(source);
-    if (plan && report.status === 'success') await this.applyImport(plan, report);
-    else await this.recordReport(report);
-    return report;
+    if (!plan || report.status !== 'success') {
+      await this.recordReport(report);
+      return report;
+    }
+    try {
+      await this.applyImport(plan, report);
+      return report;
+    } catch (err) {
+      const message = String(err instanceof Error ? err.message : err);
+      const failed: ImportReport = {
+        ...report,
+        at: new Date().toISOString(),
+        status: 'failed',
+        issue: { stage: 'write', packId: report.issue?.packId, message },
+        warnings: [...report.warnings, { stage: 'write', message: 'the write was rolled back; stored content is unchanged' }],
+      };
+      await this.recordReport(failed);
+      return failed;
+    }
   }
 
   async applyImport(plan: ContentPlan, report: ImportReport): Promise<void> {
     const db = this.require();
     await this.enqueue(async () => {
+      const wroteAt = Date.now();
       await db.execute('BEGIN');
       try {
         // User rows reference `ayah` with RESTRICT, which is what stops a
@@ -372,6 +468,9 @@ export class TauriGateway implements DataGateway {
         await db.execute('PRAGMA defer_foreign_keys = ON');
         for (const table of CONTENT_TABLES) await db.execute(`DELETE FROM ${table}`);
         await this.writePlan(db, plan);
+        // `buildImportPlan` timed the verification and mapping; the screen quotes
+        // `durationMs` as *the import* duration, so the write belongs in it too.
+        report.durationMs += Date.now() - wroteAt;
         await db.execute(
           'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
           ['last_import_json', JSON.stringify(report)],
@@ -389,89 +488,141 @@ export class TauriGateway implements DataGateway {
   }
 
   private async writePlan(db: Database, plan: ContentPlan): Promise<void> {
-    for (const p of plan.packs) {
-      await db.execute(
-        `INSERT INTO content_pack (id, kind, version, schema_version, language, title, source,
-            license_name, license_spdx, license_status, license_notes, attribution, checksum,
-            payload_bytes, record_count, imported_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [
-          p.id,
-          p.kind,
-          p.version,
-          p.schemaVersion,
-          p.language,
-          p.title,
-          p.source,
-          p.licenseName,
-          p.licenseSpdx,
-          p.licenseStatus,
-          p.licenseNotes,
-          JSON.stringify(p.attribution),
-          p.checksum,
-          p.payloadBytes,
-          p.recordCount,
-          p.importedAt,
-        ],
-      );
-    }
-    for (const s of plan.surahs) {
-      await db.execute(
-        `INSERT INTO surah (number, name_arabic, name_simple, name_transliterated, translation_fa,
-            translation_en, revelation_place, revelation_order, ayah_count, pages_from, pages_to,
-            first_verse_key, last_verse_key, bismillah_pre)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [
-          s.number,
-          s.nameArabic,
-          s.nameSimple,
-          s.nameTransliterated,
-          s.translationFa,
-          s.translationEn,
-          s.revelationPlace,
-          s.revelationOrder,
-          s.ayahCount,
-          s.pagesFrom,
-          s.pagesTo,
-          s.firstVerseKey,
-          s.lastVerseKey,
-          s.bismillahPre ? 1 : 0,
-        ],
-      );
-    }
-    for (const a of plan.ayahs) {
-      await db.execute(
-        `INSERT INTO ayah (verse_key, chapter, verse, source_id, juz, hizb, rub_el_hizb, sajda, ruku,
-            manzil, page, text_uthmani, text_uthmani_simple, word_count, normalized_hash)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [
-          a.verseKey,
-          a.chapter,
-          a.verse,
-          a.sourceId,
-          a.juz,
-          a.hizb,
-          a.rubElHizb,
-          a.sajda,
-          a.ruku,
-          a.manzil,
-          a.page,
-          a.textUthmani,
-          a.textUthmaniSimple,
-          a.wordCount,
-          a.normalizedHash,
-        ],
-      );
-    }
+    await insertRows(
+      db,
+      'content_pack',
+      [
+        'id',
+        'kind',
+        'version',
+        'schema_version',
+        'language',
+        'title',
+        'source',
+        'license_name',
+        'license_spdx',
+        'license_status',
+        'license_notes',
+        'attribution',
+        'checksum',
+        'payload_bytes',
+        'record_count',
+        'imported_at',
+      ],
+      plan.packs.map((p) => [
+        p.id,
+        p.kind,
+        p.version,
+        p.schemaVersion,
+        p.language,
+        p.title,
+        p.source,
+        p.licenseName,
+        p.licenseSpdx,
+        p.licenseStatus,
+        p.licenseNotes,
+        JSON.stringify(p.attribution),
+        p.checksum,
+        p.payloadBytes,
+        p.recordCount,
+        p.importedAt,
+      ]),
+    );
+    await insertRows(
+      db,
+      'surah',
+      [
+        'number',
+        'name_arabic',
+        'name_simple',
+        'name_transliterated',
+        'translation_fa',
+        'translation_en',
+        'revelation_place',
+        'revelation_order',
+        'ayah_count',
+        'pages_from',
+        'pages_to',
+        'first_verse_key',
+        'last_verse_key',
+        'bismillah_pre',
+      ],
+      plan.surahs.map((s) => [
+        s.number,
+        s.nameArabic,
+        s.nameSimple,
+        s.nameTransliterated,
+        s.translationFa,
+        s.translationEn,
+        s.revelationPlace,
+        s.revelationOrder,
+        s.ayahCount,
+        s.pagesFrom,
+        s.pagesTo,
+        s.firstVerseKey,
+        s.lastVerseKey,
+        s.bismillahPre ? 1 : 0,
+      ]),
+    );
+    await insertRows(
+      db,
+      'ayah',
+      [
+        'verse_key',
+        'chapter',
+        'verse',
+        'source_id',
+        'juz',
+        'hizb',
+        'rub_el_hizb',
+        'sajda',
+        'ruku',
+        'manzil',
+        'page',
+        'text_uthmani',
+        'text_uthmani_simple',
+        'word_count',
+        'normalized_hash',
+      ],
+      plan.ayahs.map((a) => [
+        a.verseKey,
+        a.chapter,
+        a.verse,
+        a.sourceId,
+        a.juz,
+        a.hizb,
+        a.rubElHizb,
+        a.sajda,
+        a.ruku,
+        a.manzil,
+        a.page,
+        a.textUthmani,
+        a.textUthmaniSimple,
+        a.wordCount,
+        a.normalizedHash,
+      ]),
+    );
     let wordId = 0;
-    for (const w of plan.words) {
-      wordId += 1;
-      await db.execute(
-        `INSERT INTO ayah_word (id, verse_key, position, page_number, line_number,
-            text_uthmani, translation_en, transliteration,
-            root, morphology, is_end_of_ayah_mark, normalized)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [
+    await insertRows(
+      db,
+      'ayah_word',
+      [
+        'id',
+        'verse_key',
+        'position',
+        'page_number',
+        'line_number',
+        'text_uthmani',
+        'translation_en',
+        'transliteration',
+        'root',
+        'morphology',
+        'is_end_of_ayah_mark',
+        'normalized',
+      ],
+      plan.words.map((w) => {
+        wordId += 1;
+        return [
           wordId,
           w.verseKey,
           w.position,
@@ -484,74 +635,89 @@ export class TauriGateway implements DataGateway {
           w.morphology,
           w.isEndOfAyahMark ? 1 : 0,
           w.normalized,
-        ],
-      );
-    }
-    for (const t of plan.translations) {
-      await db.execute('INSERT INTO translation (verse_key, pack_id, text) VALUES (?,?,?)', [
-        t.verseKey,
-        t.packId,
-        t.text,
-      ]);
-    }
-    for (const t of plan.tafsirs) {
-      await db.execute('INSERT INTO tafsir (verse_key, pack_id, text, covers_verse_keys) VALUES (?,?,?,?)', [
-        t.verseKey,
-        t.packId,
-        t.text,
-        JSON.stringify(t.coversVerseKeys),
-      ]);
-    }
-    for (const s of plan.similar) {
-      await db.execute(
-        `INSERT INTO similar_ayah (verse_key_a, verse_key_b, text_score, shared_phrase, differing_words, produced_by)
-         VALUES (?,?,?,?,?,?)`,
-        [s.verseKeyA, s.verseKeyB, s.textScore, s.sharedPhrase, JSON.stringify(s.differingWords), s.producedBy],
-      );
-    }
-    for (const r of plan.relations) {
-      await db.execute(
-        `INSERT INTO ayah_relation (from_verse_key, to_verse_key, type, reason, score, produced_by)
-         VALUES (?,?,?,?,?,?)`,
-        [r.fromVerseKey, r.toVerseKey, r.type, r.reason, r.score, r.producedBy],
-      );
-    }
-    for (const c of plan.concepts) {
-      await db.execute(
-        `INSERT INTO concept (id, label_arabic, label_fa, label_en, description_fa, relation_type, produced_by)
-         VALUES (?,?,?,?,?,?,?)`,
-        [c.id, c.labelArabic, c.labelFa, c.labelEn, c.descriptionFa, c.relationType, c.producedBy],
-      );
-    }
-    for (const l of plan.conceptAyah) {
-      await db.execute('INSERT INTO concept_ayah (concept_id, verse_key, type, reason) VALUES (?,?,?,?)', [
-        l.conceptId,
-        l.verseKey,
-        l.type,
-        l.reason,
-      ]);
-    }
-    for (const rel of plan.conceptRelations) {
-      await db.execute(
-        'INSERT INTO concept_relation (from_concept_id, to_concept_id, type, note) VALUES (?,?,?,?)',
-        [rel.fromConceptId, rel.toConceptId, rel.type, rel.note],
-      );
-    }
-    for (const a of plan.audio) {
-      await db.execute(
-        `INSERT INTO audio_track (id, verse_key, chapter, reciter, file_path, duration_ms, license_status)
-         VALUES (?,?,?,?,?,?,?)`,
-        [a.id, a.verseKey, a.chapter, a.reciter, a.filePath, a.durationMs, a.licenseStatus],
-      );
-    }
-    for (const doc of plan.searchDocs) {
-      // The FTS table exists only when SQLite had the module; the LIKE fallback
-      // reads the same rows from `ayah_search`, so both paths are covered here.
-      await db.execute(
-        'INSERT INTO ayah_search (verse_key, arabic, translation_en, translation_fa) VALUES (?,?,?,?)',
-        [doc.verseKey, doc.arabic, doc.translationEn, doc.translationFa],
-      );
-    }
+        ];
+      }),
+    );
+    await insertRows(
+      db,
+      'translation',
+      ['verse_key', 'pack_id', 'text'],
+      plan.translations.map((t) => [t.verseKey, t.packId, t.text]),
+    );
+    await insertRows(
+      db,
+      'tafsir',
+      ['verse_key', 'pack_id', 'text', 'covers_verse_keys'],
+      plan.tafsirs.map((t) => [t.verseKey, t.packId, t.text, JSON.stringify(t.coversVerseKeys)]),
+    );
+    await insertRows(
+      db,
+      'similar_ayah',
+      ['verse_key_a', 'verse_key_b', 'text_score', 'shared_phrase', 'differing_words', 'produced_by'],
+      plan.similar.map((s) => [
+        s.verseKeyA,
+        s.verseKeyB,
+        s.textScore,
+        s.sharedPhrase,
+        JSON.stringify(s.differingWords),
+        s.producedBy,
+      ]),
+    );
+    await insertRows(
+      db,
+      'ayah_relation',
+      ['from_verse_key', 'to_verse_key', 'type', 'reason', 'score', 'produced_by'],
+      plan.relations.map((r) => [r.fromVerseKey, r.toVerseKey, r.type, r.reason, r.score, r.producedBy]),
+    );
+    await insertRows(
+      db,
+      'concept',
+      ['id', 'label_arabic', 'label_fa', 'label_en', 'description_fa', 'relation_type', 'produced_by'],
+      plan.concepts.map((c) => [
+        c.id,
+        c.labelArabic,
+        c.labelFa,
+        c.labelEn,
+        c.descriptionFa,
+        c.relationType,
+        c.producedBy,
+      ]),
+    );
+    await insertRows(
+      db,
+      'concept_ayah',
+      ['concept_id', 'verse_key', 'type', 'reason'],
+      plan.conceptAyah.map((l) => [l.conceptId, l.verseKey, l.type, l.reason]),
+    );
+    await insertRows(
+      db,
+      'concept_relation',
+      ['from_concept_id', 'to_concept_id', 'type', 'note'],
+      plan.conceptRelations.map((rel) => [rel.fromConceptId, rel.toConceptId, rel.type, rel.note]),
+    );
+    await insertRows(
+      db,
+      'audio_track',
+      ['id', 'verse_key', 'chapter', 'reciter', 'file_path', 'duration_ms', 'license_status'],
+      plan.audio.map((a) => [a.id, a.verseKey, a.chapter, a.reciter, a.filePath, a.durationMs, a.licenseStatus]),
+    );
+    // The search index is derived matching data, never display data: every
+    // column is written in `matchKey` form so the query and the index agree for
+    // Arabic, Persian and English, and the Persian column carries every bundled
+    // Persian pack instead of whichever translation the loader saw last. The
+    // verses themselves stay byte-exact in `ayah` and `translation`.
+    //
+    // The FTS table exists only when SQLite had the module; when it did not,
+    // `ensureSchema` created the plain fallback table with the same columns, so
+    // both backends read the same rows.
+    const searchRows = buildSearchIndexRows(
+      collectRawSearchDocs(plan.ayahs, plan.translations, plan.packs),
+    );
+    await writeSearchIndexRows(db, searchRows);
+    await db.execute(
+      'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+      [META_KEYS.searchIndexKeyVersion, String(SEARCH_INDEX_VERSION)],
+    );
   }
 
   /**
@@ -566,7 +732,7 @@ export class TauriGateway implements DataGateway {
    * rows instead of removing them.
    */
   async resetContent(): Promise<void> {
-    const db = this.client();
+    const db = this.rawClient();
     await this.enqueue(async () => {
       const refs = await db.select<{ notes: number; bookmarks: number; reading: number; hifz: number; confusion: number }>(
         `SELECT
@@ -1425,17 +1591,18 @@ export class TauriGateway implements DataGateway {
       reflections: async () => [],
       dailyPlans: async () => this.dailyPlans(),
     });
-    const canonical = JSON.stringify(data);
-    const checksum = await invoke<string>('sha256_text', { text: canonical });
-    return {
-      schemaVersion: BACKUP_SCHEMA_VERSION,
+    // Sealed through core, never here: the checksum is sha256 over the
+    // CANONICAL json of `data` (keys sorted, undefined members dropped), and
+    // `validateEnvelopeObject` recomputes exactly that. An envelope built with
+    // `JSON.stringify(data)` + `sha256_text` digested a different byte string
+    // than the validator checks, so the app refused to restore files it had
+    // just written itself.
+    return buildEnvelope(data, {
+      app: 'quran-desktop',
+      version: '0.1.0',
+      platform: 'desktop',
       minReaderVersion: 1,
-      createdAt: new Date().toISOString(),
-      producedBy: { app: 'quran-desktop', version: '0.1.0', platform: 'desktop' },
-      checksum,
-      counts: countShape(data),
-      data,
-    };
+    }).envelope;
   }
 
   private async notesAll(): Promise<Note[]> {
@@ -1443,11 +1610,11 @@ export class TauriGateway implements DataGateway {
     return rows.map(noteFrom);
   }
 
-  private async dailyPlans(): Promise<{ date: string; payload: string; generatedAt: string }[]> {
+  private async dailyPlans(): Promise<Record<string, unknown>[]> {
     const rows = await this.client().select<{ date: string; payload: string; generated_at: string }>(
       'SELECT date, payload, generated_at FROM daily_plan ORDER BY date',
     );
-    return rows.map((r) => ({ date: r.date, payload: r.payload, generatedAt: r.generated_at }));
+    return plansForEnvelope(rows.map((r) => ({ date: r.date, payload: r.payload, generatedAt: r.generated_at })));
   }
 
   async importBackup(envelope: BackupEnvelope): Promise<MigrationResult> {
@@ -1457,8 +1624,10 @@ export class TauriGateway implements DataGateway {
     if (envelope.schemaVersion < BACKUP_SCHEMA_VERSION) {
       return { ok: false, from: envelope.schemaVersion, error: `backup v${envelope.schemaVersion} needs a migration; only v${BACKUP_SCHEMA_VERSION} can be read directly` };
     }
-    const canonical = await sha256TextTauri(JSON.stringify(envelope.data));
-    if (canonical.toLowerCase() !== envelope.checksum.trim().toLowerCase()) {
+    // Same digest the validator recomputes: core's canonical JSON of `data`,
+    // not `JSON.stringify` of it (see `exportBackup`).
+    const digest = computeDataChecksum(envelope.data);
+    if (digest.toLowerCase() !== envelope.checksum.trim().toLowerCase()) {
       return { ok: false, from: envelope.schemaVersion, error: 'backup checksum does not match its contents — the file is corrupt or edited' };
     }
     const warnings: string[] = [];
@@ -1592,7 +1761,7 @@ export class TauriGateway implements DataGateway {
             [s.id, s.startedAt, s.endedAt, s.plannedSteps, JSON.stringify(s.steps), s.report ? JSON.stringify(s.report) : null],
           );
         }
-        for (const p of envelope.data.dailyPlans as { date: string; payload: string; generatedAt: string }[]) {
+        for (const p of planRowsFromEnvelope(envelope.data.dailyPlans)) {
           await db.execute('INSERT INTO daily_plan (date, payload, generated_at) VALUES (?,?,?)', [
             p.date,
             p.payload,
@@ -1624,7 +1793,9 @@ export class TauriGateway implements DataGateway {
 
   async writeBackupFile(name: string, envelope: BackupEnvelope): Promise<string> {
     // Rust arg is `contents: String` — the envelope serialised, nothing else.
-    return invoke<string>('backup_write', { name, contents: JSON.stringify(envelope) });
+    // Canonical bytes: the sealed checksum is the digest of exactly this text's
+    // `data` member, so a file stays verifiable by its own bytes.
+    return invoke<string>('backup_write', { name, contents: serializeEnvelope(envelope) });
   }
 
   async readBackupFile(name: string): Promise<BackupEnvelope | null> {
@@ -1777,10 +1948,6 @@ function attemptFrom(r: DbAttempt): RecallAttempt {
   };
 }
 
-async function sha256TextTauri(text: string): Promise<string> {
-  return invoke<string>('sha256_text', { text });
-}
-
 /**
  * Shared backup assembly. The desktop and dev gateways both build the envelope
  * through here so a backup file is byte-identical in shape whichever produced
@@ -1796,12 +1963,49 @@ export async function collectUserData(
   return out as unknown as BackupEnvelope['data'];
 }
 
-export function countShape(data: BackupEnvelope['data']): BackupEnvelope['counts'] {
-  const counts = {} as Record<keyof BackupEnvelope['data'], number>;
-  for (const [key, value] of Object.entries(data)) {
-    counts[key as keyof BackupEnvelope['data']] = Array.isArray(value)
-      ? value.length
-      : Object.keys(value ?? {}).length;
+/** The stored shape of one row of `daily_plan` (and of the dev shell's list). */
+export interface DailyPlanRow {
+  date: string;
+  payload: string;
+  generatedAt: string;
+}
+
+/**
+ * Storage rows → the rows a backup carries.
+ *
+ * A `daily_plan` row is `{date, payload, generated_at}`, where `payload` is the
+ * plan as JSON. The backup format (and `validate.ts`, which checks the plan
+ * field by field) exports the DECODED plan instead, so the storage wrapper
+ * never appears in a file. A payload this app cannot read is dropped: sealing
+ * it in would produce a file the validator then refuses, which is worse than
+ * exporting one plan the user can regenerate.
+ */
+export function plansForEnvelope(rows: readonly DailyPlanRow[]): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  for (const r of rows) {
+    let plan: unknown;
+    try {
+      plan = JSON.parse(r.payload);
+    } catch {
+      continue;
+    }
+    if (plan === null || typeof plan !== 'object' || Array.isArray(plan)) continue;
+    out.push({ ...(plan as Record<string, unknown>), date: r.date, generatedAt: r.generatedAt });
   }
-  return counts;
+  return out;
+}
+
+/** The reverse of `plansForEnvelope`, used by every restore path. */
+export function planRowsFromEnvelope(rows: readonly unknown[]): DailyPlanRow[] {
+  const out: DailyPlanRow[] = [];
+  for (const raw of rows) {
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) continue;
+    const { generatedAt, ...plan } = raw as Record<string, unknown> & { generatedAt?: unknown };
+    const date = plan.date;
+    if (typeof date !== 'string' || typeof generatedAt !== 'string') continue;
+    // Canonical bytes, so export → restore → export is stable rather than
+    // reordering keys on every round trip.
+    out.push({ date, payload: canonicalJsonStringify(plan), generatedAt });
+  }
+  return out;
 }

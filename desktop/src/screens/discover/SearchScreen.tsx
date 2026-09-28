@@ -8,9 +8,11 @@
  * is marked when its `normalizeWord` form (or its lowercased latin form)
  * equals one of the query's — raw display bytes are never rewritten.
  *
- * The backend that answered (`searchBackend()`) and the note explaining why
- * a stronger one was skipped (`searchBackendNote()`) are always rendered:
- * they are how a reviewer knows which search path produced the list.
+ * The backend that answered (`searchBackend()`) is always rendered, and the
+ * gateway's own note (`searchBackendNote()`) is printed verbatim beside it:
+ * they are how a reviewer knows which search path produced the list. This
+ * screen only labels paths a gateway can actually report today — it never
+ * advertises one it does not run (see `backendLabel`).
  */
 import { useEffect, useState, type ReactNode } from 'react';
 
@@ -18,6 +20,7 @@ import { normalizeWord, tokenizeWords } from '@quran/core';
 import type { SearchHit } from '../../gateway/types';
 import type { SearchBackend } from '../../gateway/types';
 import { useApp } from '../../app/app-state';
+import { shellSentence } from '../../app/labels';
 import type { RouteDef, RouteProps } from '../../app/router';
 import { StateBoundary, useAsync } from '../../ui/async';
 import { Chip, Field, LinkButton, Panel } from '../../ui/primitives';
@@ -44,16 +47,31 @@ function fieldLabel(tr: (fa: string, en: string) => string, choice: FieldChoice)
   }
 }
 
+/**
+ * The label for the path that actually answered.
+ *
+ * Three backends can be reported by a gateway today: `sqlite-fts5` and `like`
+ * from the Tauri gateway, `memory-index` from the browser build (web and dev
+ * shell). The
+ * `core-engine` id is *not* one of them — `CoreEngineSearchService` in
+ * `gateway/search.ts` is implemented but wired by no gateway — so this screen
+ * makes no claim about it. Should a gateway start reporting it, the raw id is
+ * echoed as a report rather than dressed up as a feature this screen verified.
+ *
+ * The gateway note is its own sentence, printed unedited; the Tauri note string
+ * (`gateway/tauriGateway.ts`) currently mentions `core/src/search`, which this
+ * screen neither controls nor can correct from here.
+ */
 function backendLabel(tr: (fa: string, en: string) => string, backend: SearchBackend): string {
   switch (backend) {
-    case 'core-engine':
-      return tr('رتبه‌بندی قطعی موتور core', 'deterministic core-engine ranking');
     case 'sqlite-fts5':
       return tr('جستجوی کامل متن SQLite (FTS5)', 'SQLite full-text search (FTS5)');
     case 'like':
       return tr('مطابق‌سازی ساده، بدون FTS5', 'plain LIKE matching, no FTS5');
-    case 'dev-index':
-      return tr('نمایهٔ پوستهٔ توسعه', 'dev-shell in-memory index');
+    case 'memory-index':
+      return tr('نمایهٔ در حافظهٔ همین صفحه', 'in-memory index in this page');
+    default:
+      return tr('این مسیر را خودِ دروازهٔ داده گزارش می‌کند؛ این صفحه برایش برچسبی نمی‌سازد', 'reported by the data gateway itself; this screen invents no label for it');
   }
 }
 
@@ -101,7 +119,7 @@ interface SampleQueries {
 }
 
 export function SearchScreen(_props: RouteProps) {
-  const { tr, gateway } = useApp();
+  const { tr, gateway, info } = useApp();
   const [rawQuery, setRawQuery] = useState('');
   const [field, setField] = useState<FieldChoice>('all');
   const [query, setQuery] = useState('');
@@ -189,6 +207,11 @@ export function SearchScreen(_props: RouteProps) {
                 <span className="mono">{value.backend}</span>
               </Chip>
               <span className="muted">{backendLabel(tr, value.backend)}</span>
+              {/* Which gateway answered, in its own words: the dev shell and the
+                  shipped SQLite path have different guarantees. */}
+              {info ? (
+                <span className="faint">{shellSentence(tr, info.mode)}</span>
+              ) : null}
               {value.note ? <span className="faint mono">{value.note}</span> : null}
             </div>
           ) : null}

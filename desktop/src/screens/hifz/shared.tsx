@@ -189,6 +189,66 @@ export function probeReason(tr: Tr, reason: string): string {
   return reason;
 }
 
+/**
+ * The review plan's `reason` is the engine's own evidence: up to three factor
+ * summaries joined with "; ". The numbers in it are the engine's and stay
+ * untouched — only the wording around them is translated, so a Persian reader
+ * sees a Persian sentence and an English one is never presented as UI copy.
+ *
+ * Patterns are matched against `factorSummaries()` in core/src/hifz/review.ts.
+ * An unrecognised fragment is returned verbatim rather than dropped: losing the
+ * engine's evidence would be worse than showing it in English.
+ */
+const REVIEW_REASON_SHAPES: { re: RegExp; fa: (m: RegExpMatchArray) => string; en: (m: RegExpMatchArray) => string }[] = [
+  { re: /^(\d+) wrong word\(s\) in (\d+) attempt\(s\)$/, fa: (m) => `${m[1]} واژهٔ غلط در ${m[2]} تلاش`, en: (m) => m[0] },
+  { re: /^no segment data — ([\d.]+) estimated from item stability$/, fa: (m) => `دادهٔ پاره‌ای نیست — ${m[1]} از پایداری آیه برآورد شد`, en: (m) => m[0] },
+  { re: /^(\d+)\/(\d+) segment\(s\) below ([\d.]+)$/, fa: (m) => `${m[1]} از ${m[2]} پاره زیر ${m[3]}`, en: (m) => m[0] },
+  { re: /^no transition data — ([\d.]+) estimated from item stability$/, fa: (m) => `دادهٔ گذاری نیست — ${m[1]} از پایداری آیه برآورد شد`, en: (m) => m[0] },
+  { re: /^(\d+)\/(\d+) transition\(s\) below ([\d.]+)$/, fa: (m) => `${m[1]} از ${m[2]} گذار زیر ${m[3]}`, en: (m) => m[0] },
+  { re: /^never scheduled$/, fa: () => 'هرگز زمان‌بندی نشده', en: (m) => m[0] },
+  { re: /^overdue by (\d+)d$/, fa: (m) => `${m[1]} روز از سررسید گذشته`, en: (m) => m[0] },
+  { re: /^not due yet$/, fa: () => 'هنوز سررسید نشده', en: (m) => m[0] },
+  { re: /^(\d+)d since last success$/, fa: (m) => `${m[1]} روز از آخرین بازیافت موفق`, en: (m) => m[0] },
+  { re: /^no successful recall yet$/, fa: () => 'هنوز بازیافت موفقی ثبت نشده', en: (m) => m[0] },
+  { re: /^repetition debt (\d+)$/, fa: (m) => `بدهی تکرار ${m[1]}`, en: (m) => m[0] },
+  { re: /^(\d+) cross-ayah error\(s\)$/, fa: (m) => `${m[1]} خطای میان‌آیه‌ای`, en: (m) => m[0] },
+  { re: /^confusion group (.+)$/, fa: (m) => `گروه اشتباهی ${m[1]}`, en: (m) => m[0] },
+  { re: /^ungrouped$/, fa: () => 'بدون گروه اشتباهی', en: (m) => m[0] },
+  { re: /^band=(.+)$/, fa: (m) => `باند ${m[1]}`, en: (m) => m[0] },
+  { re: /^no urgency signals$/, fa: () => 'نشانهٔ فوریتی نیست', en: (m) => m[0] },
+];
+
+const REVIEW_FACTORS: Record<string, { fa: string; en: string }> = {
+  'historical-errors': { fa: 'خطاهای واژه‌ای پیشین', en: 'historical errors' },
+  'weak-segments': { fa: 'پاره‌های ضعیف', en: 'weak segments' },
+  'weak-transitions': { fa: 'گذارهای ضعیف', en: 'weak transitions' },
+  overdue: { fa: 'گذشته از سررسید', en: 'overdue' },
+  'recency-of-success': { fa: 'تازگی موفقیت', en: 'recency of success' },
+  repetition: { fa: 'بدهی تکرار', en: 'repetition' },
+  'confusion-rate': { fa: 'نرخ اشتباهی', en: 'confusion rate' },
+  'group-membership': { fa: 'عضویت در گروه', en: 'group membership' },
+  band: { fa: 'باند', en: 'band' },
+};
+
+export function reviewReason(tr: Tr, reason: string): string {
+  return reason
+    .split('; ')
+    .map((part) => {
+      for (const shape of REVIEW_REASON_SHAPES) {
+        const m = part.match(shape.re);
+        if (m) return tr(shape.fa(m), shape.en(m));
+      }
+      return part;
+    })
+    .join(tr('؛ ', '; '));
+}
+
+/** Persian label for one scheduler factor; an unknown key surfaces verbatim. */
+export function reviewFactorLabel(tr: Tr, key: string): string {
+  const f = REVIEW_FACTORS[key];
+  return f ? tr(f.fa, f.en) : key;
+}
+
 /* --------------------------------------------------------------- formatting */
 
 /** Exact duration of stored milliseconds — never rounded into a lie. */
@@ -331,6 +391,36 @@ function errsClass(errs: DetectedError[]): string {
   return 'mark';
 }
 
+/**
+ * What the engine recorded, phrased in the interface language.
+ *
+ * The engine's own `explanation` is an English sentence stored with the attempt;
+ * interpolating it into a Persian chip reads like a bug, and the same facts are
+ * already in the structured fields (`kind`, `expected`, `actual`, position), so
+ * they are re-expressed here — the original sentence stays on the chip as its
+ * `title` so the record the engine wrote is never lost.
+ */
+function errorDetail(tr: Tr, e: DetectedError): string | null {
+  const q = (word: string | null): string => `«${word}»`;
+  switch (e.kind) {
+    case 'substitution':
+      if (!e.expected || !e.actual) return null;
+      return tr(`به‌جای ${q(e.expected)}، ${q(e.actual)} خوانده شد`, `“${e.actual}” instead of “${e.expected}”`);
+    case 'omission':
+      return e.expected ? tr(`${q(e.expected)} خوانده نشد`, `“${e.expected}” was not recited`) : null;
+    case 'repetition':
+      return e.actual ? tr(`${q(e.actual)} دوباره خوانده شد`, `“${e.actual}” was recited twice`) : null;
+    case 'wrong-order':
+      return e.actual ? tr(`${q(e.actual)} جای دیگری از همین آیه است`, `“${e.actual}” belongs elsewhere in the ayah`) : null;
+    case 'similar-ayah-confusion':
+      return tr('این واژه از آیهٔ دیگری آمده است', 'this wording comes from another ayah');
+    case 'wrong-transition':
+      return tr('گذار به آیهٔ نادرست', 'transitioned to the wrong ayah');
+    default:
+      return null;
+  }
+}
+
 /** Error chips of one attempt, labelled from the contract. */
 export function ErrorChips({ errors }: { errors: DetectedError[] }) {
   const { tr } = useApp();
@@ -340,11 +430,17 @@ export function ErrorChips({ errors }: { errors: DetectedError[] }) {
   return (
     <div className="row stack--tight">
       {errors.map((e, i) => (
-        <span key={`${e.kind}-${e.expectedPosition}-${i}`} className="chip chip--band" data-band={e.kind === 'correct' ? 'mastered' : 'weak'} dir="auto">
+        <span
+          key={`${e.kind}-${e.expectedPosition}-${i}`}
+          className="chip chip--band"
+          data-band={e.kind === 'correct' ? 'mastered' : 'weak'}
+          dir="auto"
+          title={e.explanation ?? undefined}
+        >
           <span className="error-chip__kind">{errorKindLabel(tr, e.kind)}</span>
           <span className="num faint"> · {tr('واژه', 'word')} {e.expectedPosition}</span>
           {e.confusedWithVerseKey ? <span className="mono"> ← {e.confusedWithVerseKey}</span> : null}
-          {e.explanation ? <span className="faint"> — {e.explanation}</span> : null}
+          {errorDetail(tr, e) ? <span className="faint"> — {errorDetail(tr, e)}</span> : null}
         </span>
       ))}
     </div>

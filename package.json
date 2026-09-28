@@ -11,11 +11,15 @@
   "scripts": {
     "build:core": "npm run build --workspace @quran/core",
     "test:core": "npm run test --workspace @quran/core",
+    "test:desktop": "npm run test --workspace desktop",
+    "test:integration": "vitest run tests/integration",
     "content:fetch": "npm run fetch --workspace @quran/content",
     "content:build": "npm run build --workspace @quran/content",
     "content:validate": "npm run validate --workspace @quran/content",
     "desktop:dev": "npm run dev --workspace desktop",
     "desktop:build": "npm run build --workspace desktop",
-    "desktop:tauri": "npm run tauri --workspace desktop"
+    "desktop:tauri": "npm run tauri --workspace desktop",
+    "desktop:web": "npm run web:serve --workspace desktop",
+    "desktop:web:package": "npm run web:package --workspace desktop"
   }
 }

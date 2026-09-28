@@ -73,7 +73,6 @@
 
 .shell-note {
   padding: var(--sp-2) var(--sp-3);
-  margin-bottom: var(--sp-4);
   border: 1px solid var(--border);
   border-radius: var(--radius-1);
   background: var(--gold-soft);
@@ -127,8 +126,13 @@
   align-items: center;
   min-height: var(--inline-target);
   padding: 0 var(--sp-2);
-  color: var(--accent);
   text-decoration: none;
+}
+/* Only a plain link carries the accent colour. Declaring it on `.linkbtn`
+   itself beats `.btn--primary` by source order — same specificity, later rule —
+   and paints a button's label in its own background. */
+.linkbtn:not(.btn) {
+  color: var(--accent);
 }
 .linkbtn:hover {
   text-decoration: underline;
@@ -235,10 +239,20 @@
 }
 
 /* ------------------------------------------------------------------- meter */
+/*
+ * Two boxes, not one. The label used to hang off the edge of the bar with
+ * `position: absolute; inset-inline-start: 100%`, and the bar's own
+ * `overflow: hidden` — needed to round off the fill — clipped it away, so
+ * every stability and accuracy value in the hifz screens was invisible.
+ */
 .meter {
-  position: relative;
   display: inline-flex;
   align-items: center;
+  gap: var(--sp-2);
+}
+.meter__track {
+  flex: none;
+  display: block;
   min-width: 72px;
   height: 8px;
   border-radius: var(--radius-pill);
@@ -257,9 +271,6 @@
   background: var(--state-danger);
 }
 .meter__label {
-  position: absolute;
-  inset-inline-start: 100%;
-  margin-inline-start: var(--sp-2);
   font-size: var(--fs-100);
   color: var(--text-muted);
   white-space: nowrap;

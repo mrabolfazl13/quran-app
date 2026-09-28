@@ -14,10 +14,11 @@
  */
 import { useCallback, useState } from 'react';
 
-import { coerceSetting, defaultSettings, type BackupEnvelope, type MigrationResult } from '@quran/core';
+import { coerceSetting, defaultSettings, serializeEnvelope, validateEnvelopeObject, type BackupEnvelope, type MigrationResult } from '@quran/core';
 
 import { useApp } from '../../app/app-state';
 import type { Tr } from '../../app/app-state';
+import { shellName, storesFilesInBrowser } from '../../app/labels';
 import type { RouteDef } from '../../app/router';
 import type { ContentCounts, GatewayInfo } from '../../gateway/types';
 import { StateBoundary, useAsync } from '../../ui/async';
@@ -34,6 +35,15 @@ interface BackupData {
 
 /** A backup name is a filename to the native layer: keep it in its allowlist. */
 const NAME_RE = /^[A-Za-z0-9._-]+\.quranbak$/;
+
+/** The one name rule, stated once — writing to storage and downloading a file
+ *  are two different exits for the same envelope and must refuse the same names. */
+function nameProblem(tr: Tr): string {
+  return tr(
+    'نام فایل باید فقط حرف، رقم، نقطه، زیرخط و خط تیره باشد و با .quranbak پایان یابد.',
+    'The name may only contain letters, digits, dot, underscore and dash, and must end in .quranbak.',
+  );
+}
 
 const DATA_LABELS: Readonly<Record<string, readonly [string, string]>> = {
   settings: ['تنظیمات', 'Settings'],
@@ -74,6 +84,27 @@ function currentOf(counts: ContentCounts, key: string): number | null {
 function defaultName(now: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `quran-backup-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}.quranbak`;
+}
+
+/**
+ * The one way a file becomes a previewable envelope.
+ *
+ * `readBackupFile`/`JSON.parse` hand back whatever bytes the file held, and the
+ * preview reads `createdAt`, `schemaVersion` and `producedBy` off it directly —
+ * so an unchecked object is a crash the user can cause just by opening a file.
+ * `applyRestore` already validates the raw text; this closes the earlier door
+ * with the same validator and gives back the envelope it certified.
+ */
+export function acceptEnvelope(parsed: unknown, tr: Tr): { envelope: BackupEnvelope } | { error: string } {
+  const check = validateEnvelopeObject(parsed);
+  if (check.ok) return { envelope: check.envelope };
+  const first = check.errors[0];
+  return {
+    error: tr(
+      `این فایل پذیرفته نشد — ${check.errors.length} ایراد${first ? `؛ نخستین: ${first.path} (${first.message})` : ''}. چیزی خوانده نشد و پایگاه دستنخورده است.`,
+      `This file was rejected — ${check.errors.length} issue(s)${first ? `; first: ${first.path} (${first.message})` : ''}. Nothing was loaded and the database is untouched.`,
+    ),
+  };
 }
 
 export function BackupScreen() {
@@ -127,13 +158,7 @@ export function BackupScreen() {
   const save = useCallback(async () => {
     if (!gateway || !draft) return;
     if (!NAME_RE.test(name)) {
-      setMessage({
-        kind: 'error',
-        text: tr(
-          'نام فایل باید فقط حرف، رقم، نقطه، زیرخط و خط تیره باشد و با .quranbak پایان یابد.',
-          'The name may only contain letters, digits, dot, underscore and dash, and must end in .quranbak.',
-        ),
-      });
+      setMessage({ kind: 'error', text: nameProblem(tr) });
       return;
     }
     setExporting(true);
@@ -149,6 +174,34 @@ export function BackupScreen() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gateway, draft, name, state, tr]);
+
+  /**
+   * A browser build gets its portable copy this way: no folder access, just the
+   * same envelope the preview showed, handed to the browser as bytes on disk.
+   * Revocation is delayed because Firefox keeps reading the object URL after the
+   * click returns.
+   */
+  const download = useCallback(() => {
+    if (!draft) return;
+    if (!NAME_RE.test(name)) {
+      setMessage({ kind: 'error', text: nameProblem(tr) });
+      return;
+    }
+    // Same bytes `writeBackupFile` puts in a .quranbak — a downloaded file and a
+    // packaged one must verify by the same checksum rule.
+    const url = URL.createObjectURL(new Blob([serializeEnvelope(draft)], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 2000);
+    setMessage({
+      kind: 'ok',
+      text: `${tr('به مرورگر داده شد تا روی دیسک ذخیره کنید', 'Handed to the browser to save on disk')}: ${name}`,
+    });
+  }, [draft, name, tr]);
 
   const openStored = useCallback(
     async (fileName: string) => {
@@ -168,7 +221,13 @@ export function BackupScreen() {
           setSelected(null);
           return;
         }
-        setSelected({ name: fileName, envelope });
+        const accepted = acceptEnvelope(envelope, tr);
+        if ('error' in accepted) {
+          setMessage({ kind: 'error', text: accepted.error });
+          setSelected(null);
+          return;
+        }
+        setSelected({ name: fileName, envelope: accepted.envelope });
         setMessage({ kind: 'info', text: `${fileName} — ${tr('آمادهٔ بررسی', 'ready to inspect')}` });
       } catch (cause) {
         setMessage({ kind: 'error', text: cause instanceof Error ? cause.message : String(cause) });
@@ -186,14 +245,13 @@ export function BackupScreen() {
       try {
         const text = await file.text();
         const parsed: unknown = JSON.parse(text);
-        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-          setMessage({
-            kind: 'error',
-            text: tr('بالای فایل باید یک شیء JSON باشد؛ چیزی خوانده نشد.', 'The top level must be a JSON object; nothing was loaded.'),
-          });
+        const accepted = acceptEnvelope(parsed, tr);
+        if ('error' in accepted) {
+          setMessage({ kind: 'error', text: accepted.error });
+          setSelected(null);
           return;
         }
-        setSelected({ name: file.name, envelope: parsed as BackupEnvelope });
+        setSelected({ name: file.name, envelope: accepted.envelope });
         setMessage({ kind: 'info', text: `${file.name} — ${tr('آمادهٔ بررسی', 'ready to inspect')}` });
       } catch (cause) {
         // A hostile or truncated file is a message, never an exception.
@@ -255,11 +313,12 @@ export function BackupScreen() {
   return (
     <div className="stack">
       <MeTabs current="/me/backup" />
+      {/* No isEmpty gate here: with no backup files the export panel is the way
+          out, so hiding it would strand the screen on its own empty state. */}
       <StateBoundary
         state={state}
         emptyTitle={tr('هنوز فایلی ساخته نشده است', 'No backup file exists yet')}
-        emptyBody={tr('ابتدا یک فایل بسازید.', 'Build one first.')}
-        isEmpty={(value) => value.files.length === 0}
+        isEmpty={() => false}
         onRetry={() => state.refresh()}
         skeleton={<div className="state state--loading">{tr('فهرست پشتیبان‌ها…', 'Listing backups…')}</div>}
       >
@@ -273,14 +332,21 @@ export function BackupScreen() {
                       `در برنامهٔ نصبی، فایل‌ها با پسوند quranbak. در پوشهٔ backups کنار پایگاه داده نوشته و فقط با نام خوانده می‌شوند — نه با مسیر. پایگاه داده: ${value.info.database ?? '—'}`,
                       `In the packaged app, .quranbak files are written into the backups folder next to the database and are addressed by NAME only, never by path. Database: ${value.info.database ?? '—'}`,
                     )
-                  : tr(
-                      'در پوستهٔ توسعهٔ مرورگر، «فایل» یعنی یک رکورد در localStorage همین مرورگر با کلید quran.backups. این فایل قابل حمل نیست؛ برای گرفتن پشتیبان واقعی برنامهٔ دسکتاپ را باز کنید.',
-                      'In the browser dev shell a “file” is one entry in this browser’s localStorage under the key quran.backups. It is not portable — use the desktop app for a real backup.',
-                    )}
+                  : value.info.mode === 'web'
+                    ? tr(
+                        'نسخهٔ وب به پوشه‌های این رایانه دسترسی ندارد: هر فایل در حافظهٔ همین مرورگر می‌ماند و با کلید quran.backups. برای یک فایل قابل حمل، «دانلود فایل» را بزنید تا همان پاکت به شکل .quranbak. روی دیسک ذخیره شود؛ با همان فایل در هر مرورگر دیگری بازیابی می‌شود.',
+                        'The web build cannot reach this computer’s folders: a file is kept in this browser’s storage under the key quran.backups. For a portable copy, press “Download file” and the same envelope is written to disk as .quranbak — that file restores in any other browser.',
+                      )
+                    : tr(
+                        'در پوستهٔ توسعهٔ مرورگر، «فایل» یعنی یک رکورد در localStorage همین مرورگر با کلید quran.backups. این فایل قابل حمل نیست؛ برای گرفتن پشتیبان واقعی برنامهٔ دسکتاپ را باز کنید.',
+                        'In the browser dev shell a “file” is one entry in this browser’s localStorage under the key quran.backups. It is not portable — use the desktop app for a real backup.',
+                      )}
               </p>
-              {value.info.mode === 'dev' ? (
+              {storesFilesInBrowser(value.info.mode) ? (
                 <div className="row">
-                  <Chip tone="warn">{tr('پوستهٔ توسعه', 'Dev shell')}</Chip>
+                  <Chip tone={value.info.mode === 'web' ? 'info' : 'warn'}>
+                    {shellName(tr, value.info.mode)}
+                  </Chip>
                   <span className="faint">{formatNumber(tr, value.files.length)} {tr('فایل ذخیره‌شده در این مرورگر', 'files stored in this browser')}</span>
                 </div>
               ) : null}
@@ -319,6 +385,9 @@ export function BackupScreen() {
                     <Button busy={exporting} disabled={Boolean(savedPath)} onClick={() => void save()}>
                       {tr('ذخیرهٔ فایل', 'Write file')}
                     </Button>
+                    {storesFilesInBrowser(value.info.mode) ? (
+                      <Button onClick={download}>{tr('دانلود فایل', 'Download file')}</Button>
+                    ) : null}
                   </div>
                   <p className="field__hint" id="backup-name-hint">
                     {tr('نمونه:', 'Example:')} <span className="mono" dir="ltr">quran-backup-20260928-2130.quranbak</span>
@@ -333,14 +402,21 @@ export function BackupScreen() {
                   ) : null}
                 </div>
               ) : (
-                <p className="faint">{tr('هنوز فایلی ساخته نشده است.', 'No envelope has been built yet.')}</p>
+                <p className="faint">
+                  {tr('پوششی نساخته‌اید — «ساخت فایل از دادهٔ فعلی» را بزنید.', 'Nothing has been built yet — press “Build from current data”.')}
+                </p>
               )}
             </Panel>
 
             {/* ------------------------------------------------------------ restore */}
             <Panel title={tr('بازیابی', 'Restore')}>
               {value.files.length === 0 ? (
-                <p className="muted">{tr('فایل ذخیره‌شده‌ای نیست.', 'There are no stored backup files.')}</p>
+                <p className="muted">
+                  {tr(
+                    'فایل ذخیره‌شده‌ای نیست — اول «ساخت فایل از دادهٔ فعلی» و سپس «ذخیرهٔ فایل» را بزنید.',
+                    'There are no stored backup files — use “Build from current data”, then “Write file”.',
+                  )}
+                </p>
               ) : (
                 <ul className="filelist">
                   {value.files.map((file) => (
@@ -372,9 +448,13 @@ export function BackupScreen() {
                 </ul>
               )}
 
-              {value.info.mode === 'dev' ? (
+              {storesFilesInBrowser(value.info.mode) ? (
                 <Field
-                  label={tr('یا یک فایل JSON از این رایانه بردارید (فقط پوستهٔ توسعه)', 'Or pick a JSON file from this computer (dev shell only)')}
+                  label={
+                    value.info.mode === 'web'
+                      ? tr('یا یک فایل پشتیبان از این رایانه بردارید', 'Or pick a backup file from this computer')
+                      : tr('یا یک فایل JSON از این رایانه بردارید (فقط پوستهٔ توسعه)', 'Or pick a JSON file from this computer (dev shell only)')
+                  }
                   htmlFor="backup-upload"
                   hint={tr('فقط در همین مرورگر خوانده می‌شود و جایی فرستاده نمی‌شود.', 'It is read locally by this browser and never sent anywhere.')}
                 >

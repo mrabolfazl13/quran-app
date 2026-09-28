@@ -30,7 +30,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
     return (
       <div style={{ padding: 32, fontFamily: 'Vazirmatn, sans-serif' }}>
         <h1 style={{ fontSize: 22 }}>صفحهٔ برنامه متوقف شد</h1>
-        <p style={{ color: '#5c6b64' }}>
+        <p style={{ color: 'var(--text-muted)' }}>
           دادهٔ شما دست‌نخورده مانده است. برنامه را دوباره باز کنید؛ اگر تکرار شد، متن زیر را نگه دارید.
         </p>
         <pre className="mono" dir="ltr" style={{ whiteSpace: 'pre-wrap' }}>
@@ -56,3 +56,19 @@ createRoot(container).render(
     </ErrorBoundary>
   </StrictMode>,
 );
+
+/*
+ * The installed web build has to open with the local server switched off, and
+ * only a service worker can promise that. Two exclusions, both load-bearing:
+ * not in `vite dev`, where a reload must always serve current source; and not
+ * inside Tauri, which has its own bundled assets and would gain a cache that
+ * can only confuse an update. Same host test the gateway uses.
+ */
+const insideTauri = '__TAURI_INTERNALS__' in window || '__TAURI__' in window;
+if (import.meta.env.PROD && !insideTauri && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker
+      .register('sw.js', { scope: './' })
+      .catch((e: unknown) => console.warn('Service worker not registered — offline start unavailable', e));
+  });
+}

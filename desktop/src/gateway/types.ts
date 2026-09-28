@@ -45,9 +45,19 @@ import type {
 
 export type { Bookmark, HifzItem, Note };
 
-export type GatewayMode = 'tauri' | 'dev';
+export type GatewayMode = 'tauri' | 'web' | 'dev';
 
-export type SearchBackend = 'core-engine' | 'sqlite-fts5' | 'like' | 'dev-index';
+/**
+ * The search paths a gateway can report. `core-engine` was removed on
+ * 2026-09-28: `CoreEngineSearchService` existed but no gateway constructed it,
+ * so nothing ever answered under that id.
+ *
+ * `memory-index` is what `dev-index` used to be called — the browser build was
+ * only ever a dev shell then, so the id read as "not the real thing". The web
+ * deliverable runs the same in-memory index on a shipped path, so the name says
+ * where the index lives, not which shell opened it.
+ */
+export type SearchBackend = 'sqlite-fts5' | 'like' | 'memory-index';
 
 export interface GatewayInfo {
   mode: GatewayMode;
@@ -58,7 +68,10 @@ export interface GatewayInfo {
   contentRoot: string | null;
   schemaVersion: number;
   searchBackend: SearchBackend;
-  /** True when the window is the packaged Tauri shell (no dev badge needed). */
+  /**
+   * False only for the throwaway dev shell. The web build is a shipped path:
+   * what it stores is what the user gets, so it must not wear a dev badge.
+   */
   isShippedPath: boolean;
 }
 
@@ -108,6 +121,12 @@ export interface AudioTrackRow {
   licenseStatus: LicenseStatus;
 }
 
+/**
+ * One row of `ayah_search`. Every field is `matchKey` text — a *matching* form,
+ * never display text — so the query and the stored index agree for Arabic,
+ * Persian and English alike. `translationFa` carries all bundled Persian packs,
+ * joined in pack-id order. Display comes from `ayah` and `translation`.
+ */
 export interface SearchDocRow {
   verseKey: VerseKey;
   arabic: string;

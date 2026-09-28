@@ -10,7 +10,7 @@ import type { DailyPlan, HifzItem, RecallAttempt, ReviewPlanEntry } from '@quran
 import { useApp } from '../../app/app-state';
 import { StateBoundary, useAsync } from '../../ui/async';
 import { Chip, LinkButton, Meter, Panel } from '../../ui/primitives';
-import { AyahLink, BandTag, errorKindLabel, fmtDate, fmtPct, modeLabel, useHifzFacade } from './shared';
+import { AyahLink, BandTag, errorKindLabel, fmtDate, fmtPct, modeLabel, reviewReason, useHifzFacade } from './shared';
 
 interface WeakData {
   plan: DailyPlan;
@@ -135,7 +135,7 @@ function WeakPlanRow({ entry, item }: { entry: ReviewPlanEntry; item: HifzItem |
       </span>
       <Chip tone="warn">{tr('اولویت', 'priority')} <span className="mono num">{entry.priority}</span></Chip>
       <Chip tone="neutral">{tr('حالت', 'mode')}: <span className="rtl-iso">{modeLabel(tr, entry.suggestedMode)}</span></Chip>
-      <span className="muted mono ltr-iso" dir="ltr">{entry.reason}</span>
+      <span className="muted" dir="auto">{reviewReason(tr, entry.reason)}</span>
       {item ? <Meter value={item.stability} tone="danger" label={`${item.stability}`} /> : null}
       <LinkButton to="/hifz/session" className="btn">{tr('تمرین', 'Drill')}</LinkButton>
     </li>

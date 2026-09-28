@@ -1,7 +1,7 @@
 # Hifz Engine — Memory Fingerprint Method
 
 Implements master-prompt §8–§11. Code: `core/src/hifz/**`. Tests:
-`core/tests/hifz/**` (175 passing across 6 files — measured with
+`core/tests/hifz/**` (212 passing across 7 files — measured with
 `cd core && npx vitest run tests/hifz`). Contracts:
 `core/src/contracts/hifz.ts`.
 
@@ -90,6 +90,40 @@ substitution, and the near miss appears only in the explanation text.
 
 `accuracy = correctWordCount / expectedWordCount` over normalised tokens.
 `isExactRecitation` is the only notion of "perfect".
+
+### The graded span
+
+`classifyRecitation` takes an optional `span: { fromWord, toWord }` — the
+ayah-absolute word range the step's probe actually cued (`RecallProbe.fromWord` /
+`toWord`, the same fields the UI shows as "expected words"). The span is what
+gets graded:
+
+- `expectedWordCount` is the span's length, not the ayah's.
+- Words of the ayah outside the span are neither omissions nor credit; reciting
+  the whole ayah when two words were asked for produces insertions and scores 0,
+  because an unpaired produced word takes credit away.
+- Alignment, error attribution and the positional thirds all run inside the
+  span; the resulting `expectedPosition`, `alignment[].expectedIndex` and
+  `firstErrorPosition` are offset back to ayah-absolute before returning, so
+  `segmentPosition` and the word-by-word view still name the same words as a
+  whole-ayah step would.
+- With no span the function behaves exactly as before, which is what the
+  whole-ayah modes rely on.
+
+Why it exists: a `segment` step cues one semantic chunk of a new ayah, so grading
+it against the full ayah scored a flawless four-word chunk of the ten-word 67:4
+as 4/10 and pulled the item's stability down for a mistake the learner never
+made. The same holds for `missing-word` (one word), `opening`/`middle`/`ending`
+(a third) and the seeded `random` span.
+
+The caller supplies the span from the engine's own probe call for that session
+and step index — the seed is `${session.id}:${stepIndex}`, so re-deriving it at
+grading time reproduces precisely what was shown, and no screen ever tells the
+engine what it asked for. See `submitRecall` in
+[`desktop/src/engine/hifzFacade.ts`](../desktop/src/engine/hifzFacade.ts).
+Proven live in the dev shell: a 4-word `segment` step and a 3-word `random` step
+each return the engine's 100.0% with the denominator the cue displayed, and the
+stored `recallAttempts` row reads back the same.
 
 ## Session (`session.ts`)
 

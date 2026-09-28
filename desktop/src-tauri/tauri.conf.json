@@ -30,6 +30,7 @@
     "active": true,
     "targets": "all",
     "category": "Education",
+    "resources": ["content/"],
     "shortDescription": "Offline Quran reading, understanding, tafsir and hifz",
     "longDescription": "A fully offline Quran platform: mushaf and ayah reading with bundled translations, word-by-word study, tafsir with attribution, and a deterministic hifz memory engine.",
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico"],

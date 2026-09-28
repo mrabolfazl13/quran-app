@@ -123,7 +123,7 @@ export function PageScreen({ params }: RouteProps) {
                   <span className="faint num">
                     {data.ayahs.length} {tr('آیه', 'ayat')}
                   </span>
-                  <span className="faint mono">
+                  <span className="faint mono" dir="ltr">
                     {data.ayahs[0]?.verseKey ?? '—'}
                     {data.ayahs.length > 1 ? `–${data.ayahs[data.ayahs.length - 1]?.verseKey ?? ''}` : ''}
                   </span>

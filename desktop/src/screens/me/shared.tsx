@@ -1,8 +1,9 @@
 /**
- * Pieces shared by the Me screens only.
+ * Pieces shared by the Me screens — and `ConfirmBox`, which the Hifz screens
+ * import too, because it is the app's only confirmation.
  *
- * `ConfirmBox` exists because every destructive action in this area (reset
- * content, restore a backup, delete a note) has to state what is lost and
+ * `ConfirmBox` exists because every destructive action (reset content, restore
+ * a backup, delete a note, remove a hifz item) has to state what is lost and
  * require an explicit tick before the button works — a `window.confirm` string
  * cannot carry that much detail and is not keyboard-styled with the rest of the
  * app. `MeTabs` is the in-area navigation: the sidebar carries one entry for

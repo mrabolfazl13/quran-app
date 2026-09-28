@@ -15,7 +15,14 @@
  */
 import { CONTENT_PACK_SCHEMA_VERSION } from '@quran/core';
 import type { ContentPackManifest, PackIndex } from '@quran/core';
-import type { ContentPlan, ImportCounts, ImportIssue, ImportPackOutcome, ImportReport } from '../gateway/types';
+import type {
+  ContentPlan,
+  ImportCounts,
+  ImportIssue,
+  ImportPackOutcome,
+  ImportReport,
+  ImportStage,
+} from '../gateway/types';
 import { emptyPlan } from '../gateway/types';
 import type { PackSource } from './packSource';
 import { buildSearchDocs, mapRecords, packRowOf, payloadPathOf, validatePlan } from './records';
@@ -265,6 +272,17 @@ function emptyCounts(): ImportCounts {
     concepts: 0,
     audio: 0,
   };
+}
+
+/**
+ * The one report shape a caller has to build for itself: `buildImportPlan`
+ * reports every pack-level failure inside its own outcome, but a source that
+ * throws before returning anything (an unreadable content directory) leaves the
+ * caller holding only an error. This keeps that case in the same shape the UI
+ * already renders instead of inventing a second one.
+ */
+export function failedImportReport(stage: ImportStage, message: string, at = new Date().toISOString()): ImportReport {
+  return { at, status: 'failed', durationMs: 0, packs: [], counts: emptyCounts(), issue: { stage, message }, warnings: [] };
 }
 
 export { countsOf };

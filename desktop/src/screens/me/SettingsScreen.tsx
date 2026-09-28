@@ -18,7 +18,7 @@ import type { Tr } from '../../app/app-state';
 import type { RouteDef } from '../../app/router';
 import type { TranslationOption } from '../../gateway/types';
 import { StateBoundary, useAsync } from '../../ui/async';
-import { Button, Chip, Field, Panel } from '../../ui/primitives';
+import { Button, Chip, Field, NumRange, Panel } from '../../ui/primitives';
 import { applyFontScales, cacheFontScales } from './font-scale';
 import { ConfirmBox, LicenseChip, MeTabs, StatusLine, type Message } from './shared';
 import './me.css';
@@ -288,7 +288,14 @@ function SettingRow({ def, value, translations, ayahTotal, onPersist }: RowProps
           <span className="mono" dir="ltr">
             {def.type === 'enum' ? choiceLabel(def.key, String(def.default), tr) : String(def.default)}
           </span>
-          {def.type === 'number' ? ` · ${def.min}–${def.max}` : ''}
+          {def.type === 'number' ? (
+            <>
+              {' · '}
+              <NumRange from={def.min} to={def.max} />
+            </>
+          ) : (
+            ''
+          )}
         </p>
       </div>
     </li>

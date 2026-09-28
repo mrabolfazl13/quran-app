@@ -135,14 +135,20 @@ export function StateBoundary<T>({
 
   // The dev shell is announced, never hidden: a reviewer must know at a glance
   // that the data path is the browser one and not the packaged SQLite one.
+  //
+  // The notice and the section it belongs to are wrapped in one element on
+  // purpose. A fragment here would put the notice and the content into the
+  // parent as two children, and inside a grid (`hifz-columns`) the notice would
+  // be assigned its own column and stretched to the row's height — a huge empty
+  // panel instead of a strip above the content.
   if (info && !info.isShippedPath) {
     return (
-      <>
+      <div className="stack">
         <div className="shell-note" title={info.database ?? 'in-memory dev store'}>
           {tr('پوستهٔ توسعه — داده در حافظهٔ مرورگر است و با بستهٔ نصبی فرقی دارد', 'Dev shell — data lives in browser memory, not the packaged database')}
         </div>
         {children(value)}
-      </>
+      </div>
     );
   }
 

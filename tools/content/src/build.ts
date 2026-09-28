@@ -9,6 +9,12 @@
  * what we store. Records are the contract shapes (camelCase) from
  * core/src/contracts so the importer inserts them without invention.
  * Mixed-type packs (quran-core) carry a `_t` discriminator per line.
+ *
+ * One pack is *derived* rather than copied: `mutashabihat-ar` holds the
+ * similar-ayah pairs that `core/src/mutashabihat` computes over the core ayah
+ * text this build just emitted (see `mutashabihatPack.ts`). It is still built
+ * offline from data already on disk, and it says so in its own metadata and
+ * licence notes.
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -23,6 +29,12 @@ import {
   sha256hex,
 } from './common.ts';
 import { validateRaw, validatePacks } from './validate.ts';
+import {
+  MUTASHABIHAT_PACK_ID,
+  buildMutashabihatPack,
+  coreAyahsFromPayload,
+  type DerivedContentPackManifest,
+} from './mutashabihatPack.ts';
 import type { Surah, Ayah, AyahWord, Translation, TafsirPassage, VerseKey } from '../../../core/src/contracts/quran.ts';
 import type {
   ContentPackManifest,
@@ -350,6 +362,50 @@ async function main(): Promise<void> {
     console.log(`tafsir ${packId}: ${recs.length} passages (${droppedEmpty} empty provider rows dropped)`);
   }
 
+  // ---- pack: mutashabihat-ar (computed from the core ayah text) ----
+  /**
+   * The similar-ayah pairs the mutashabihat screen reads. They are computed
+   * here, at build time, by `core/src/mutashabihat` over the exact core payload
+   * this run is about to ship — never at runtime, and never by a re-implemented
+   * matcher (`tools/content` may not fork engine logic). The input is the
+   * in-memory `corePayload` string, i.e. byte-for-byte the bytes written to
+   * `content/quran-core/payload.jsonl`; the identical-bytes assumption is
+   * re-checked against the file after the write loop below.
+   *
+   * It is a *derived* pack: its licence inherits `quran-core`'s `unresolved`
+   * status, and its manifest carries the algorithm, every engine constant it
+   * used, the score definition and an explicit "not a scholarly claim" note.
+   */
+  const mutashabihat = buildMutashabihatPack({
+    ayahs: coreAyahsFromPayload(corePayload),
+    corePayloadSha256: sha256hex(Buffer.from(corePayload, 'utf8')),
+  });
+  const mutashabihatManifest: DerivedContentPackManifest = {
+    ...makeManifest(
+      MUTASHABIHAT_PACK_ID,
+      // `linguistic` is the contract kind whose record shape `records.ts`
+      // already maps into `plan.similar`; no contract enum is widened here.
+      'linguistic',
+      'ar',
+      'Mutashabihat — computed similar-ayah candidates (machine-derived from the Uthmani text; not a scholarly analysis)',
+      mutashabihat.licenseSpec,
+      mutashabihat.payload,
+      mutashabihat.records.length,
+      earliestFetchedAt(coreDeps),
+    ),
+    // Not fetched from anywhere: the input is our own core pack.
+    source: 'computed at build time from content/quran-core/payload.jsonl',
+    derived: mutashabihat.derivation,
+  };
+  const mStats = mutashabihat.derivation.result;
+  console.log(
+    `mutashabihat: ${mStats.pairs} pairs over ${mStats.corpusAyahs} ayahs — ` +
+      `${mStats.ayahsWithAtLeastOnePair} ayahs (${mStats.coveragePercent}%) have at least one pair, ` +
+      `${mStats.pairsAtScoreOne} pairs score 1, ${mStats.pairsWithSharedPhrase} carry a shared phrase ` +
+      `(engine defaults: minScore ${mutashabihat.derivation.params.MIN_SCORE_DEFAULT}, ` +
+      `limit ${mutashabihat.derivation.params.FIND_SIMILAR_DEFAULT_LIMIT})`,
+  );
+
   // ---- write everything ----
   const packs: BuiltPack[] = [
     {
@@ -364,6 +420,11 @@ async function main(): Promise<void> {
     },
     ...TRANSLATION_RESOURCES.map(({ resourceId }) => builtTranslation[resourceId]!),
     ...builtTafsir,
+    {
+      dir: MUTASHABIHAT_PACK_ID,
+      payload: mutashabihat.payload,
+      manifest: mutashabihatManifest,
+    },
   ];
 
   mkdirSync(CONTENT_ROOT, { recursive: true });
@@ -379,6 +440,16 @@ async function main(): Promise<void> {
     if (sha256hex(written) !== p.manifest.checksum) throw new Error(`checksum drift for pack ${p.dir}`);
     if (written.length !== p.manifest.payloadBytes) throw new Error(`byte-length drift for pack ${p.dir}`);
     writeFileSync(join(dir, 'pack.json'), JSON.stringify(p.manifest, null, 2) + '\n', 'utf8');
+  }
+  // The mutashabihat rows claim to be computed from these exact core bytes, so
+  // the claim is checked rather than assumed: a different digest means the pair
+  // pack describes a mushaf that is not the one on disk.
+  {
+    const coreOnDisk = readFileSync(join(CONTENT_ROOT, 'quran-core', 'payload.jsonl'));
+    const used = mutashabihatManifest.derived.input.payloadSha256;
+    if (sha256hex(coreOnDisk) !== used) {
+      throw new Error(`mutashabihat input drift: pairs were computed over sha256 ${used}, content/quran-core/payload.jsonl is ${sha256hex(coreOnDisk)}`);
+    }
   }
   const index: PackIndex = { schemaVersion: CONTENT_PACK_SCHEMA_VERSION, builtAt: emittedAt(), packs: packs.map((p) => p.manifest) };
   writeFileSync(join(CONTENT_ROOT, 'index.json'), JSON.stringify(index, null, 2) + '\n', 'utf8');

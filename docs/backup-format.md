@@ -35,7 +35,7 @@ Exported logical tables — exactly the 14 arrays plus the settings record of
 | `sessions` | `hifz_session` (`steps`, `report` canonical JSON) |
 | `journeys` | `learning_journey` + `journey_progress` (flattened into `progress[]`) |
 | `reflections` | `reflection` |
-| `dailyPlans` | `daily_plan` (whole row canonical-JSON in `payload`; backup row = `DailyPlan` + `generatedAt`) |
+| `dailyPlans` | `daily_plan` (backup row = the decoded `DailyPlan` + `generatedAt`; the storage `payload` column never appears in a file, and restore writes the plan back into it) |
 
 `user_profile` and `meta` are device-local and not exported.
 
@@ -89,6 +89,12 @@ The checksum covers **`data` only** — never `createdAt`, `producedBy` or
 `sha256` is implemented dependency-free in `core/src/backup/sha256.ts` and is
 verified against `node:crypto` for multiple inputs (including UTF-8 heavy and
 block-boundary lengths).
+
+A writer seals through `buildEnvelope` and serialises through
+`serializeEnvelope` — never with `JSON.stringify` plus a second hash call. A
+digest over non-canonical bytes validates against neither rule, and that is how
+the installed app ended up refusing the file it had just written
+(`tests/integration/tauri-gateway-backup-roundtrip.test.ts`).
 
 ## Validation (`inspectEnvelope`)
 

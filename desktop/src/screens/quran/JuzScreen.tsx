@@ -9,7 +9,7 @@
 import { useApp } from '../../app/app-state';
 import type { RouteProps } from '../../app/router';
 import { StateBoundary, useAsync } from '../../ui/async';
-import { Chip, LinkButton, Panel } from '../../ui/primitives';
+import { Chip, LinkButton, NumRange, Panel } from '../../ui/primitives';
 import { AyahFeed } from './AyahFeed';
 import { JUZ_COUNT, asInt } from './lib';
 import './quran.css';
@@ -68,9 +68,9 @@ export function JuzIndexScreen() {
                   </div>
                   <div className="row">
                     <span className="num faint">
-                      {tr('صفحه', 'p.')} {juz.pageFrom}–{juz.pageTo}
+                      {tr('صفحه', 'p.')} <NumRange from={juz.pageFrom} to={juz.pageTo} />
                     </span>
-                    <span className="faint mono">
+                    <span className="faint mono" dir="ltr">
                       {juz.firstVerseKey}–{juz.lastVerseKey}
                     </span>
                   </div>
@@ -140,9 +140,9 @@ export function JuzScreen({ params }: RouteProps) {
                       {found.ayahCount} {tr('آیه', 'ayat')}
                     </span>
                     <span className="num faint">
-                      {tr('صفحه', 'p.')} {found.pageFrom}–{found.pageTo}
+                      {tr('صفحه', 'p.')} <NumRange from={found.pageFrom} to={found.pageTo} />
                     </span>
-                    <span className="faint mono">
+                    <span className="faint mono" dir="ltr">
                       {found.firstVerseKey}–{found.lastVerseKey}
                     </span>
                   </>

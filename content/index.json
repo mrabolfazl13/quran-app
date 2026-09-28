@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "builtAt": "2026-09-27T23:46:40.803Z",
+  "builtAt": "2026-09-28T02:06:09.236Z",
   "packs": [
     {
       "id": "quran-core",
@@ -148,7 +148,7 @@
         "verseKeysFrom": "1:1",
         "verseKeysTo": "114:6"
       },
-      "generatedAt": "2026-09-27T23:46:38.825Z",
+      "generatedAt": "2026-09-28T02:06:08.010Z",
       "generator": "@quran/content/src/build.ts v0.1.0"
     },
     {
@@ -297,7 +297,7 @@
         "verseKeysFrom": "1:1",
         "verseKeysTo": "114:6"
       },
-      "generatedAt": "2026-09-27T23:46:38.952Z",
+      "generatedAt": "2026-09-28T02:06:08.084Z",
       "generator": "@quran/content/src/build.ts v0.1.0"
     },
     {
@@ -446,7 +446,7 @@
         "verseKeysFrom": "1:1",
         "verseKeysTo": "114:6"
       },
-      "generatedAt": "2026-09-27T23:46:38.492Z",
+      "generatedAt": "2026-09-28T02:06:06.588Z",
       "generator": "@quran/content/src/build.ts v0.1.0"
     },
     {
@@ -595,7 +595,7 @@
         "verseKeysFrom": "1:1",
         "verseKeysTo": "114:6"
       },
-      "generatedAt": "2026-09-27T23:46:38.567Z",
+      "generatedAt": "2026-09-28T02:06:06.620Z",
       "generator": "@quran/content/src/build.ts v0.1.0"
     },
     {
@@ -744,7 +744,7 @@
         "verseKeysFrom": "1:1",
         "verseKeysTo": "114:6"
       },
-      "generatedAt": "2026-09-27T23:46:38.602Z",
+      "generatedAt": "2026-09-28T02:06:06.649Z",
       "generator": "@quran/content/src/build.ts v0.1.0"
     },
     {
@@ -893,7 +893,7 @@
         "verseKeysFrom": "1:1",
         "verseKeysTo": "114:6"
       },
-      "generatedAt": "2026-09-27T23:46:38.718Z",
+      "generatedAt": "2026-09-28T02:06:06.685Z",
       "generator": "@quran/content/src/build.ts v0.1.0"
     },
     {
@@ -1042,8 +1042,223 @@
         "verseKeysFrom": "1:1",
         "verseKeysTo": "114:6"
       },
-      "generatedAt": "2026-09-27T23:46:38.795Z",
+      "generatedAt": "2026-09-28T02:06:06.792Z",
       "generator": "@quran/content/src/build.ts v0.1.0"
+    },
+    {
+      "id": "mutashabihat-ar",
+      "kind": "linguistic",
+      "version": "1.0.0",
+      "schemaVersion": 1,
+      "language": "ar",
+      "title": "Mutashabihat — computed similar-ayah candidates (machine-derived from the Uthmani text; not a scholarly analysis)",
+      "source": "computed at build time from content/quran-core/payload.jsonl",
+      "license": {
+        "spdx": null,
+        "name": "Derived work over the bundled Uthmani Qur’an text (no independent licence claim)",
+        "url": "https://quran.com",
+        "status": "unresolved",
+        "notes": "Machine-derived data, not a new edition of any text: each row records two existing verse keys plus a score and the shared/differing words quoted out of the Madani Mushaf text itself. It therefore inherits the licence of its input, `quran-core`, whose own status is unresolved (the Quran.com v4 /resources endpoints expose no license field and Quran Foundation developer terms state QF content is not redistributed) — this pack claims nothing clearer than that, and the same written permission has to cover both. The pairs themselves are computed text similarity, not scholarly commentary, so no third-party text is reproduced here beyond the Qur’an wording already in `quran-core`. Input payload sha256 49cb3b10f7e739945a204e76a6360ab4739322470fa24fae20ded2ba313480d4."
+      },
+      "attribution": {
+        "publisher": "Computed by @quran/core (core/src/mutashabihat) over the bundled Uthmani text pack; no human editor and no model was involved",
+        "work": "Mutashabihat — computed similar-ayah candidate pairs",
+        "edition": "algorithm:mutashabihat-blocking@v1",
+        "sourceUrl": "https://quran.com",
+        "creditLine": "Derived from the Qur’an text pack (King Fahd Complex for the Printing of the Holy Qur’an, Madinah al-Munawwarah; served via Quran.com). Pairs are machine-computed textual similarity — candidate study material, not a scholarly mutashābahāt analysis and not a religious claim.",
+        "retrievedAt": "2026-09-27T21:48:36.653Z"
+      },
+      "checksum": "415e7a1a130c523d07a93d2a01f56444335a5616dd5a337a005ffda7c9d40a49",
+      "payloadBytes": 516934,
+      "recordCount": 1732,
+      "coverage": {
+        "chapters": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42,
+          43,
+          44,
+          45,
+          46,
+          47,
+          48,
+          49,
+          50,
+          51,
+          52,
+          53,
+          54,
+          55,
+          56,
+          57,
+          58,
+          59,
+          60,
+          61,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          81,
+          82,
+          83,
+          84,
+          85,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103,
+          104,
+          105,
+          106,
+          107,
+          108,
+          109,
+          110,
+          111,
+          112,
+          113,
+          114
+        ],
+        "verseKeysFrom": "1:1",
+        "verseKeysTo": "114:6"
+      },
+      "generatedAt": "2026-09-28T02:06:07.995Z",
+      "generator": "@quran/content/src/build.ts v0.1.0",
+      "derived": {
+        "computed": true,
+        "presentedAs": "computed textual similarity — candidate only",
+        "not": [
+          "scholarly mutashābahāt analysis",
+          "asbab al-nuzul",
+          "a religious or legal claim",
+          "model or human output"
+        ],
+        "producedBy": "algorithm:mutashabihat-blocking@v1",
+        "algorithm": {
+          "id": "mutashabihat-blocking",
+          "version": 1,
+          "module": "core/src/mutashabihat/index.ts",
+          "tokenisation": "core/src/normalize/arabic.ts — tokenizeWords() then normalizeWord()"
+        },
+        "scoreDefinition": "textScore = max(setSimilarity(a, b), tokenSimilarity(a, b)) over the canonical tokens (normalizeWord(tokenizeWords(textUthmani))) — both functions from core/src/normalize/arabic. setSimilarity is Jaccard over the normalised word sets, tokenSimilarity is 1 − word-level Levenshtein / longer length. 1 means the two ayat share the same normalised vocabulary; 0 means nothing in common. max(), not mean(): for a memoriser a re-ordered identical vocabulary is as confusing as an identical set.",
+        "rounding": "scores stored with the engine’s own presentation rounding, toFixed(4), applied after every guard has voted",
+        "params": {
+          "MIN_SCORE_DEFAULT": 0.5,
+          "MIN_SCORE_SHORT": 0.85,
+          "SHORT_AYAH_MAX_WORDS": 3,
+          "SHORT_AYAH_SHARED_RATIO": 0.8,
+          "SHORT_AYAH_RESULT_CAP": 5,
+          "SHARED_RATIO_DEFAULT": 0.3,
+          "MIN_SHARED_WORDS": 2,
+          "FIND_SIMILAR_DEFAULT_LIMIT": 50,
+          "RARE_DF_FRACTION": 0.02,
+          "RARE_DF_FLOOR": 24,
+          "RARE_WORDS_PER_AYAH": 6,
+          "LENGTH_BAND_ABS": 6,
+          "LENGTH_BAND_FRACTION": 0.5,
+          "TEXTUAL_SCORE_FLOOR": 0.75,
+          "GROUP_MIN_SCORE": 0.6,
+          "GROUP_PHRASE_TOKENS": 2
+        },
+        "inclusionRule": "a pair is emitted when findSimilar() reported it for at least one of its two ayat as the anchor, with the engine’s default minScore and limit and all of its guards (score floor, MIN_SHARED_WORDS, shared-word ratio, short-ayah bar/cap) applied by the engine itself. No threshold was tuned for this pack; the constants above are imported from core.",
+        "determinism": {
+          "pairOrder": "ascending verseKeyA, then ascending verseKeyB (numeric chapter:verse)",
+          "direction": "verseKeyA is always the canonically smaller key of the pair",
+          "deduplication": "the unordered pair is the identity; the reverse row is never emitted",
+          "scoreRounding": "toFixed(4), applied after filtering",
+          "input": "the quran-core payload written by this same build run, byte-verified against data/raw"
+        },
+        "input": {
+          "packId": "quran-core",
+          "payloadFile": "content/quran-core/payload.jsonl",
+          "payloadSha256": "49cb3b10f7e739945a204e76a6360ab4739322470fa24fae20ded2ba313480d4",
+          "ayahCount": 6236
+        },
+        "indexStats": {
+          "ayahCount": 6236,
+          "rareDfThreshold": 125,
+          "bucketCount": 14042,
+          "candidatePairs": 55911,
+          "bruteForcePairs": 19440730
+        },
+        "result": {
+          "pairs": 1732,
+          "ayahsWithAtLeastOnePair": 1228,
+          "corpusAyahs": 6236,
+          "coveragePercent": 19.7,
+          "pairsAtScoreOne": 756,
+          "pairsWithSharedPhrase": 1732
+        }
+      }
     }
   ]
 }

@@ -17,7 +17,9 @@ decides something the user trusts is here:
 
 **Integration** — `tests/integration/`, real SQLite:
 - pack import: checksum verified, transaction abort leaves the DB untouched,
-  counts asserted (114 surahs, 6236 ayahs, 604 pages present).
+  counts asserted (114 surahs, 6236 ayahs, 604 pages present), bulk rows written
+  in chunked statements under SQLite's parameter ceiling with the values still
+  bound (`tauri-gateway-statement-queue.test.ts`).
 - alignment: a translation row fetched by `verse_key` matches the spot-check
   response the pipeline used, re-verified from raw data.
 - engine over stored rows: add item → segment → attempt → stability → review
@@ -26,6 +28,21 @@ decides something the user trusts is here:
   attempt payloads; restore of a corrupt or future-version envelope must fail
   without touching the live DB.
 - migration: v1 DB opened by a newer app, then refused by an older one.
+
+## How to run
+
+```bash
+npm run test:core         # core unit suite
+npm run test:desktop      # desktop unit suite (desktop/src/**)
+npm run test:integration  # tests/integration/** — real SQLite through node:sqlite
+```
+
+`tests/integration/tauri-gateway-statement-queue.test.ts` mocks only
+`@tauri-apps/plugin-sql`: the SQL, the schema and the transactions are real
+SQLite against a temp file, and the fake driver fails any second concurrent
+statement, so the gateway's serialisation is pinned rather than described.
+Commands for the packaged-app level (the only level that can prove a shipped
+path) are in `docs/packaging.md` and `docs/release.md`.
 
 **E2E** — `tests/e2e/`, Playwright against the packaged app (headless Edge or
 WebView2 CDP gives real pixels on this machine; the browser dev shell is not a

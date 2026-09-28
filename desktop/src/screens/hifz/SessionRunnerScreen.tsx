@@ -7,12 +7,17 @@
  * re-read with `recallAttempts(itemId, 1)` so the learner sees the row that
  * actually landed in the database. The target ayah stays hidden until
  * submission; the learner's own text is never rewritten.
+ *
+ * `?item=<hifz item id>` (set by the fingerprint panel on /hifz/items) is
+ * honoured: the session is still the engine's own plan — this screen adds,
+ * removes or reorders no step — but it opens on that item's step and states
+ * plainly when the plan holds no step for it.
  */
 import { useEffect, useRef, useState } from 'react';
 import type { HifzItem, HifzSession, RecallAttempt, VerseKey } from '@quran/core';
 import type { StepProbe } from '../../engine/hifzFacade';
 import { useApp } from '../../app/app-state';
-import { navigate } from '../../app/router';
+import { navigate, type RouteProps } from '../../app/router';
 import { StateBoundary, useAsync, type AsyncState } from '../../ui/async';
 import { Button, Chip, LinkButton, Meter, Panel } from '../../ui/primitives';
 import {
@@ -38,19 +43,34 @@ interface Verdict {
   itemAfter: HifzItem | null;
 }
 
-export function SessionRunnerScreen() {
+/** `?item=` once resolved against the engine's steps: the step, or none at all. */
+interface Focus {
+  itemId: string;
+  stepIndex: number | null;
+}
+
+export function SessionRunnerScreen({ query }: RouteProps) {
   const { tr } = useApp();
   const facade = useHifzFacade();
   const [session, setSession] = useState<HifzSession | null>(null);
+  const [focus, setFocus] = useState<Focus | null>(null);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<unknown>(null);
+  const requestedItem = (query.item ?? '').trim();
 
   async function start(): Promise<void> {
     if (!facade) return;
     setStarting(true);
     setStartError(null);
     try {
-      setSession(await facade.startSession(new Date(), 0));
+      const next = await facade.startSession(new Date(), 0);
+      if (requestedItem.length > 0) {
+        // Only the engine's own steps are considered; the requested item can
+        // choose where the learner starts, never what is practised.
+        const at = next.steps.findIndex((step) => step.itemId === requestedItem);
+        setFocus({ itemId: requestedItem, stepIndex: at >= 0 ? at : null });
+      }
+      setSession(next);
     } catch (cause) {
       setStartError(cause);
     } finally {
@@ -58,7 +78,7 @@ export function SessionRunnerScreen() {
     }
   }
 
-  if (session !== null) return <ActiveRunner session={session} />;
+  if (session !== null) return <ActiveRunner session={session} focus={focus} />;
 
   return (
     <div className="stack">
@@ -69,6 +89,14 @@ export function SessionRunnerScreen() {
             'The session is built from today’s plan: warm-up, new ayat, owed reviews, transitions and similar-ayah drills. Every answer is scored by the memory engine and stored.',
           )}
         </p>
+        {requestedItem.length > 0 ? (
+          <p className="muted rtl-iso">
+            {tr(
+              'این نشست برای تمرین همین آیه گشوده شده است؛ برنامهٔ امروز دست‌نخورده ساخته می‌شود و تنها گام آغازینش انتخاب می‌شود.',
+              'This session was opened to drill this ayah: today’s plan is built unchanged and only its starting step is picked.',
+            )}
+          </p>
+        ) : null}
         <div className="row">
           <Button variant="primary" busy={starting} onClick={() => void start()}>
             {tr('شروع نشست', 'Start session')}
@@ -88,10 +116,10 @@ export function SessionRunnerScreen() {
 }
 
 /** Everything below only mounts once a session exists, so hooks stay unconditional. */
-function ActiveRunner({ session }: { session: HifzSession }) {
+function ActiveRunner({ session, focus }: { session: HifzSession; focus: Focus | null }) {
   const { tr } = useApp();
   const facade = useHifzFacade();
-  const [stepIndex, setStepIndex] = useState(0);
+  const [stepIndex, setStepIndex] = useState(focus?.stepIndex ?? 0);
   const [done, setDone] = useState<ReadonlySet<number>>(new Set());
   const [finishing, setFinishing] = useState(false);
   const [finishError, setFinishError] = useState<unknown>(null);
@@ -155,6 +183,19 @@ function ActiveRunner({ session }: { session: HifzSession }) {
         }
       >
         <Meter value={completedCount / total} label={`${Math.round((completedCount / total) * 100)}%`} />
+        {focus ? (
+          <p className="muted rtl-iso" role="status">
+            {focus.stepIndex === null
+              ? tr(
+                  'درخواست تمرین همین آیه بود، اما برنامهٔ امروز گامی برایش ندارد؛ نشست از گام نخست آغاز شده است.',
+                  'The drill request was this ayah, but today’s plan has no step for it — the session opens at step 1.',
+                )
+              : tr(
+                  `نشست روی گامِ همین آیه گشوده شد: گام ${focus.stepIndex + 1} از ${total}.`,
+                  `The session opened on this ayah’s step: step ${focus.stepIndex + 1} of ${total}.`,
+                )}
+          </p>
+        ) : null}
         {finishError ? <p className="field__error mono" role="alert" dir="auto">{errorMessage(finishError)}</p> : null}
       </Panel>
 

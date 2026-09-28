@@ -941,3 +941,112 @@ export const textScripts = {
   hasArabicScript,
   hasLatinScript,
 };
+
+/* ------------------------------------------------------------------ */
+/* The shared matching space (index columns and queries agree here)   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Which normalisation the stored searchable columns are written with.
+ *
+ * `ayah_search` is a derived matching structure, not content: its columns hold
+ * `matchKey(...)` output, never the bytes the app displays. Because the
+ * normalisation rules can change while the SQLite schema does not, the value
+ * written to `meta.search_index_key_version` at import time is what lets a
+ * gateway notice that its stored index predates the current rules and rebuild
+ * it from `ayah` + `translation` instead of serving silently stale results.
+ *
+ * Version 1 (before 2026-09-28): Arabic normalised, translations stored raw —
+ * so a Persian query (normalised at read time) could not match the raw index.
+ * Version 2: every column normalised with `matchKey`.
+ */
+export const SEARCH_INDEX_KEY_VERSION = 2;
+
+/**
+ * Persian ye (ی, U+06CC) onto Arabic yeh (ي, U+064A) — a matching-only fold.
+ *
+ * Measured over the bundled packs: the Persian translations carry 55,419 `ی`
+ * and 86 `ي` (56 verses use both), the Uthmani text carries 18,222 `ي` and no
+ * `ی`. Without this fold a Persian user whose keyboard produces `ي` finds
+ * nothing, and the same word written the other way is a different token — the
+ * one case where the shared Arabic normalisation is too narrow for this product.
+ * The fold is applied to the index column and to the query by the same
+ * `matchKey`, so the two can never drift apart; stored text is untouched.
+ */
+const PERSIAN_YE = /ی/g;
+
+/**
+ * The one form a searchable column is stored in, for both scripts:
+ *
+ * - an Arabic/Persian-script token goes through `normalizeWord` (the single
+ *   "same word" definition in `../normalize/arabic`, shared with the memory
+ *   engine and the integrity checks) plus the `ی`→`ي` fold above,
+ * - any other token goes through `latinKey` (lowercase, non-alphanumerics are
+ *   separators), because the Arabic path *drops* Latin tokens entirely —
+ *   `tokenizeWords` filters anything without an Arabic-block letter, so a Latin
+ *   column keyed through it would index nothing at all.
+ *
+ * It is a *matching* key, so it is lossy by design: diacritics and Quranic
+ * annotation signs go, the alef family collapses, Persian kehef/alef-maqsura
+ * fold onto their Arabic counterparts, ZWNJ disappears (`خانه‌ای` → `خانهاي`),
+ * punctuation and symbols are removed, and Latin text is lowercased. Displayed
+ * text is never taken from here.
+ *
+ * There is no Persian stemmer, and none is claimed: matching is substring
+ * matching over this key, which is what actually recalls Persian agglutination
+ * (`نماز` matching `نمازهای`).
+ */
+export function matchKey(text: string): string {
+  const tokens: string[] = [];
+  for (const raw of text.split(/\s+/)) {
+    if (raw.length === 0) continue;
+    if (hasArabicScript(raw)) tokens.push(normalizeWord(raw).replace(PERSIAN_YE, 'ي'));
+    else tokens.push(latinKey(raw));
+  }
+  return tokens.join(' ').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * The user's query in the same space as `matchKey`, one word per entry.
+ *
+ * Deliberately *not* a punctuation-to-space rewrite: combining harakat are
+ * `\p{M}`, not `\p{L}`, so replacing "everything that is not a letter" with a
+ * space shatters `بِسْمِ` into the single-letter tokens ب، س، م — which is how
+ * an Arabic query pasted from the mushaf used to match either nothing (FTS
+ * phrase) or thousands of irrelevant ayahs (single-letter LIKE). Splitting on
+ * whitespace and then normalising each word with `normalizeWord` drops the
+ * punctuation *inside* a token instead of turning it into a separator, so both
+ * scripts yield real word tokens.
+ */
+export function matchTokens(query: string): string[] {
+  return matchKey(query)
+    .split(' ')
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
+}
+
+/** The three searchable columns of `ayah_search`, in documented field order. */
+export type MatchField = 'arabic' | 'translation-fa' | 'translation-en';
+
+/** Arabic first (it is the revealed text), then the product language, then English. */
+export const MATCH_FIELD_PRIORITY: readonly MatchField[] = ['arabic', 'translation-fa', 'translation-en'];
+
+/**
+ * Deterministic ordering for a merged hit list: the documented field priority
+ * first (Arabic is the revealed text, then the product language, then English),
+ * then the Arabic bm25 rank when the caller has one (smaller is better), then
+ * mushaf order. No model, no clock, no scores invented per backend.
+ */
+export function compareMatchedHits(
+  a: { field: MatchField; bm25?: number; chapter: number; verse: number },
+  b: { field: MatchField; bm25?: number; chapter: number; verse: number },
+): number {
+  const pa = MATCH_FIELD_PRIORITY.indexOf(a.field);
+  const pb = MATCH_FIELD_PRIORITY.indexOf(b.field);
+  if (pa !== pb) return pa - pb;
+  const ra = a.bm25 ?? Number.POSITIVE_INFINITY;
+  const rb = b.bm25 ?? Number.POSITIVE_INFINITY;
+  if (ra !== rb) return ra - rb;
+  if (a.chapter !== b.chapter) return a.chapter - b.chapter;
+  return a.verse - b.verse;
+}

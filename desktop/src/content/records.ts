@@ -569,6 +569,15 @@ export function validatePlan(plan: ContentPlan, manifests: ContentPackManifest[]
   if (ayahSet.size > 0) {
     for (const t of plan.translations) orphan('translation', t.verseKey);
     for (const t of plan.tafsirs) orphan('tafsir', t.verseKey);
+    for (const t of plan.similar) {
+      // `similar_ayah` has no foreign key and no `produced_by` CHECK (see
+      // `core/src/contracts/db.sql`), so a pair naming an ayah that is not in
+      // the mushaf would be written silently and then surface as a dead row on
+      // the mutashabihat screen. Both ends are checked for the same reason the
+      // derived pack is built from these ayahs in the first place.
+      orphan('similar pair', t.verseKeyA);
+      orphan('similar pair', t.verseKeyB);
+    }
     for (const w of plan.words) orphan('word', w.verseKey);
     for (const l of plan.conceptAyah) orphan('concept link', l.verseKey);
   }

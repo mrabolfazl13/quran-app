@@ -21,6 +21,21 @@ export function isArabicScript(text: string): boolean {
   return /\p{sc=Arabic}/u.test(text);
 }
 
+/**
+ * The tafsir providers mark the word under explanation with inline HTML
+ * (`<span class="green">…</span>`). React escapes it, so those tags would show
+ * up as literal text in the middle of an Arabic paragraph. The markup carries no
+ * meaning a reader needs, so it is dropped at the display boundary — the stored
+ * row keeps exactly what was imported.
+ */
+function stripProviderMarkup(text: string): string {
+  return text
+    .replace(/<[^>]*>/g, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\s+([،؛:.!?])/g, '$1')
+    .trim();
+}
+
 export function TafsirPanel({
   verseKey,
   titles,
@@ -70,7 +85,7 @@ export function TafsirPanel({
                 className={`tafr__text ${isArabicScript(passage.text) ? 'arabic-inline' : 'persian'}`}
                 dir={isArabicScript(passage.text) ? 'rtl' : undefined}
               >
-                {passage.text}
+                {stripProviderMarkup(passage.text)}
               </p>
             </article>
           ))}

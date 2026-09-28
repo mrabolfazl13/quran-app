@@ -28,7 +28,77 @@ matching test or command has actually been run.
   (`core/src/search`, `core/src/mutashabihat`).
 - Desktop app (`desktop`): Tauri v2 shell, SQLite gateway, pack importer, design
   system with Arabic/Persian typography and RTL default, reader and hifz screens.
-- Docs: architecture, product spec, data model, testing, privacy.
+- Docs: architecture, product spec, data model, testing, privacy, packaging,
+  performance, mushaf layout.
+- Statement queue in `TauriGateway`: every statement (reads included) goes
+  through one lane, so the plugin keeps a single SQLite connection and a manual
+  `BEGIN … COMMIT` becomes a real transaction again.
+- Chunked bulk writes (`desktop/src/gateway/batchInsert.ts`): multi-row
+  `INSERT … VALUES (?,?,…),(?,?,…)` under a 900-bound-parameter ceiling, values
+  staying bound so revealed text never passes through an escaping step.
+- `tests/integration/tauri-gateway-statement-queue.test.ts` and
+  `tests/integration/tauri-gateway-backup-roundtrip.test.ts` — real SQLite
+  behind a fake `@tauri-apps/plugin-sql`, one statement in flight, chunk count
+  and byte-exact parameters pinned, and "what the app exports the app must
+  accept" pinned over the whole envelope.
+- Root scripts: `test:core`, `test:desktop`, `test:integration`, `desktop:web`,
+  `desktop:web:package`.
+
+### Fixed
+
+Four shipped-path defects, each found by using the installed app rather than
+building it (device-level evidence in `docs/current-state.md`):
+
+- The app refused to restore **its own** backup file: `checksum-mismatch` plus
+  five `missing-field` errors on `$.data.dailyPlans[0]`. The gateways sealed
+  `sha256(JSON.stringify(data))` while `core/src/backup/validate.ts` recomputes
+  the digest over canonical JSON, and daily plans were exported as the storage
+  row `{date, payload, generatedAt}` instead of the decoded plan the validator
+  reads. Export now goes through `buildEnvelope`, files through
+  `serializeEnvelope` (including the browser "download file" path), and restore
+  re-encodes the plan into `daily_plan.payload`.
+- First content import took **164.1 s with the UI frozen** on the installed app.
+  Serialising the statement queue makes each statement one Tauri round trip, and
+  the write path issued one `execute()` per record — 111,776 of them. Batched
+  into chunked statements: **10.4 s** measured at 2 s resolution on the first
+  build after the fix, **8.0 s** (app's own report: 7,629 ms) on a later
+  never-seen profile, **7.33 s** for a full re-import at 200 ms resolution, with
+  byte-identical row counts.
+- `ImportReport.durationMs` — the figure `/me/content` quotes as "imported in X
+  ms" — timed verification and mapping only, so it printed ~1,900 ms for the
+  164-second import. `applyImport` adds the write time before storing the report.
+- Import died with `(code: 5) database is locked`, `ROLLBACK` reporting `no
+  transaction is active` and a half-filled content table, because the app's own
+  `Promise.all` of counts could interleave a read between the writer's `BEGIN`
+  and its inserts on a second pooled connection.
+
+Seven UI-gate defects found by exercising the app rather than building it:
+
+- Home left the "no content imported" empty state on screen after a successful
+  import: the state is derived from stats read at mount, and the import never
+  re-read them. Verified first-run — one click clears it in 2729 ms, no reload.
+- Numeric ranges with an en dash painted in reversed order inside RTL
+  paragraphs (U+2013 is bidi-neutral, so the paragraph direction wins). Added
+  `NumRange` (`ui/primitives.tsx`) and `dir="ltr"` on verse keys across 13
+  sites. Sweep: 301 ranges, 0 reversed.
+- Five primary link-buttons rendered their label in their own background
+  colour, because `.linkbtn` is declared after `.btn--primary` at equal
+  specificity. Now only a plain link takes the accent
+  (`.linkbtn:not(.btn)`).
+- Secondary text failed contrast systemically: `--text-faint` measured
+  2.99–3.2:1 and warn/gold tokens sat under AA on their own chips. Re-tokenised
+  in `styles/tokens.css`; audit now reports 0 sub-AA text nodes over 14 routes
+  × 2 themes, with an injected-violation control run to prove the probe works.
+- The dev-shell notice was a fragment child of `.hifz-columns`, so the grid
+  gave it its own column and stretched it to a 467×691 empty amber panel. It is
+  wrapped with its section now.
+- Stability and accuracy values were invisible: `.meter__label` was positioned
+  outside a box that had `overflow: hidden` to round the fill, which clipped
+  the label. `Meter` is now a track plus an in-flow label.
+- The review scheduler's reason prose (English, from `factorSummaries`) was
+  shown verbatim in the Persian interface. `reviewReason` translates the known
+  summary shapes and leaves the engine's numbers untouched; an unrecognised
+  fragment still passes through rather than disappearing. 5 unit tests.
 
 ### Known constraints
 

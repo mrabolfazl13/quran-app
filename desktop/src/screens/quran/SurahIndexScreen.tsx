@@ -14,7 +14,7 @@ import type { Surah } from '@quran/core';
 import { useApp } from '../../app/app-state';
 import type { Tr } from '../../app/app-state';
 import { StateBoundary, useAsync } from '../../ui/async';
-import { Button, Chip, Field, LinkButton } from '../../ui/primitives';
+import { Button, Chip, Field, LinkButton, NumRange } from '../../ui/primitives';
 import { asInt, parseVerseKey, revelationLabel, surahMeaning } from './lib';
 import './quran.css';
 
@@ -156,9 +156,9 @@ function SurahRow({ surah, lang, tr }: { surah: Surah; lang: 'fa' | 'en'; tr: Tr
           {surah.ayahCount} {tr('آیه', 'ayahs')}
         </span>
         <span className="num faint" title={tr('صفحه‌های مصحف', 'Mushaf pages')}>
-          {tr('صفحه', 'p.')} {surah.pagesFrom}–{surah.pagesTo}
+          {tr('صفحه', 'p.')} <NumRange from={surah.pagesFrom} to={surah.pagesTo} />
         </span>
-        <span className="faint mono">
+        <span className="faint mono" dir="ltr">
           {surah.firstVerseKey}–{surah.lastVerseKey}
         </span>
       </span>

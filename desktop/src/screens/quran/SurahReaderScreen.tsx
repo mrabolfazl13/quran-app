@@ -15,7 +15,7 @@ import type { VerseKey } from '@quran/core';
 import type { RouteProps } from '../../app/router';
 import { useApp } from '../../app/app-state';
 import { StateBoundary, useAsync } from '../../ui/async';
-import { Chip, LinkButton, Panel } from '../../ui/primitives';
+import { Chip, LinkButton, NumRange, Panel } from '../../ui/primitives';
 import { AyahFeed } from './AyahFeed';
 import { SURAH_COUNT, asInt, asVerseKey, chapterOf, revelationLabel, surahMeaning } from './lib';
 import type { Tr } from '../../app/app-state';
@@ -92,14 +92,14 @@ export function SurahReaderScreen({ params, query }: RouteProps) {
                 {surah.ayahCount} {tr('آیه', 'ayat')}
               </span>
               <span className="num faint">
-                {tr('صفحه', 'pages')} {surah.pagesFrom}–{surah.pagesTo}
+                {tr('صفحه', 'pages')} <NumRange from={surah.pagesFrom} to={surah.pagesTo} />
               </span>
-              <span className="faint mono">
+              <span className="faint mono" dir="ltr">
                 {surah.firstVerseKey}–{surah.lastVerseKey}
               </span>
               {ayahs[0] ? (
                 <span className="faint">
-                  {tr('جزء', 'juz')} {ayahs[0].juz}–{ayahs[ayahs.length - 1]?.juz}
+                  {tr('جزء', 'juz')} <NumRange from={ayahs[0].juz} to={ayahs[ayahs.length - 1]?.juz} />
                 </span>
               ) : null}
             </div>

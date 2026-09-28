@@ -10,7 +10,7 @@ import type { DailyPlan, HifzItem, ReviewPlanEntry } from '@quran/core';
 import { useApp } from '../../app/app-state';
 import { StateBoundary, useAsync } from '../../ui/async';
 import { Chip, LinkButton, Meter, Panel } from '../../ui/primitives';
-import { AyahLink, BandTag, daysSince, fmtDate, modeLabel, useHifzFacade } from './shared';
+import { AyahLink, BandTag, daysSince, fmtDate, modeLabel, reviewFactorLabel, reviewReason, useHifzFacade } from './shared';
 
 interface QueueData {
   plan: DailyPlan;
@@ -103,11 +103,11 @@ function ReviewRow({ entry, item, nowMs }: { entry: ReviewPlanEntry; item: HifzI
       <Chip tone="neutral">{tr('حالت پیشنهادی', 'suggested mode')}: <span className="rtl-iso">{modeLabel(tr, entry.suggestedMode)}</span></Chip>
       <details className="disclosure" style={{ maxWidth: '100%' }}>
         <summary>{tr('چرا الان؟ (خروجی مرورگر)', 'why now? (scheduler output)')}</summary>
-        <p className="muted mono ltr-iso" dir="ltr">{entry.reason}</p>
+        <p className="muted" dir="auto">{reviewReason(tr, entry.reason)}</p>
         <div className="row" dir="auto">
           {factorKeys.map((k) => (
-            <Chip key={k} tone="info">
-              <span className="ltr-iso">{k}</span> <span className="num mono">{entry.factors[k]}</span>
+            <Chip key={k} tone="info" title={k}>
+              {reviewFactorLabel(tr, k)} <span className="num mono">{entry.factors[k]}</span>
             </Chip>
           ))}
         </div>

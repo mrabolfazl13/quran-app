@@ -5,7 +5,9 @@
  * computed from stored rows (`HomeStats` in `gateway/types.ts`); the screen has
  * no literals to fall back on, which is the point of building it first.
  */
-import type { HomeStats } from '../../gateway/types';
+import { useState } from 'react';
+
+import type { HomeStats, ImportReport } from '../../gateway/types';
 import { useApp, type Tr } from '../../app/app-state';
 import { navigate } from '../../app/router';
 import { StateBoundary, useAsync } from '../../ui/async';
@@ -38,7 +40,7 @@ export function HomeScreen() {
         'The app works entirely offline — import the packs from the content folder once.',
       )}
       isEmpty={(value) => !value.hasContent}
-      emptyAction={<ImportAction />}
+      emptyAction={<ImportAction onImported={() => stats.refresh()} />}
       skeleton={<div className="state state--loading">{tr('خواندن آمار…', 'Reading stats…')}</div>}
       onRetry={() => stats.refresh()}
     >
@@ -47,8 +49,9 @@ export function HomeScreen() {
   );
 }
 
-function ImportAction() {
+function ImportAction({ onImported }: { onImported: () => void }) {
   const { tr, gateway } = useApp();
+  const [issue, setIssue] = useState<string | null>(null);
   const busy = useAsync(
     async () => {
       if (!gateway) return null;
@@ -57,25 +60,50 @@ function ImportAction() {
     [gateway],
   );
   return (
-    <div className="stack--tight row">
-      <Button
-        variant="primary"
-        busy={busy.status === 'loading'}
-        onClick={async () => {
-          if (!gateway) return;
-          const report = await gateway.importFromContent();
-          busy.refresh();
-          if (report.status !== 'success') {
-            // The report is the diagnosis; showing a generic failure would hide
-            // which stage (checksum, record count, integrity) refused the pack.
-            window.alert(report.issue ? `${report.issue.stage}: ${report.issue.message}` : tr('وارد نشد', 'Import failed'));
-          }
-        }}
-      >
-        {tr('وارد کردن بسته‌های محتوا', 'Import content packs')}
-      </Button>
-      {busy.value?.status === 'failed' ? (
-        <Chip tone="danger">{`${busy.value.issue?.stage ?? ''} ${busy.value.issue?.message ?? ''}`}</Chip>
+    <div className="stack stack--tight">
+      <div className="row">
+        <Button
+          variant="primary"
+          busy={busy.status === 'loading'}
+          onClick={async () => {
+            if (!gateway) return;
+            setIssue(null);
+            // `importFromContent` rejects when the gateway itself fails (a locked
+            // database, an unreadable pack), which is not the same as a report
+            // with `status: 'failed'`. Without this catch the click does nothing
+            // at all and the only trace is a rejected promise in the console.
+            let report: ImportReport | null = null;
+            try {
+              report = await gateway.importFromContent();
+            } catch (err) {
+              setIssue(
+                `${tr('خطا در وارد کردن', 'Import error')}: ${String(err instanceof Error ? err.message : err)}`,
+              );
+            }
+            busy.refresh();
+            if (report) {
+              // The report is the diagnosis, and it stays on this screen: a native
+              // alert would carry the same text outside the theme, the RTL flow and
+              // the keyboard.
+              if (report.status !== 'success') {
+                setIssue(report.issue ? `${report.issue.stage}: ${report.issue.message}` : tr('وارد نشد', 'Import failed'));
+              }
+              // The empty state is derived from the stats read at mount, so a
+              // successful import is invisible until they are re-read.
+              else onImported();
+            }
+          }}
+        >
+          {tr('وارد کردن بسته‌های محتوا', 'Import content packs')}
+        </Button>
+        {busy.value?.status === 'failed' ? (
+          <Chip tone="danger">{`${busy.value.issue?.stage ?? ''} ${busy.value.issue?.message ?? ''}`}</Chip>
+        ) : null}
+      </div>
+      {issue ? (
+        <p className="field__error mono" role="alert" aria-live="assertive" dir="auto">
+          {issue}
+        </p>
       ) : null}
     </div>
   );
