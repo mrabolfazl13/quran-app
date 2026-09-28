@@ -71,7 +71,7 @@ Both `PackSource` implementations return `{bytes, sha256}` for a file
   commands `content_pack_stat` / `content_read_text`, so "the webview never
   computes a checksum it then trusts itself with"
   (`desktop/src/content/packSource.ts:57-81`, file header `:5-8`; Rust side
-  `sha256_text`/`content_pack_stat` commands per `docs/architecture.md:53-57`).
+  `content_pack_stat` command per `docs/architecture.md:53-57`).
 - Browser dev shell: fetches the same files from `/content/…` via
   `dev/contentMiddleware.mjs` and hashes with WebCrypto
   (`desktop/src/content/packSource.ts:83-122`, `desktop/src/content/hash.ts:5-8`;

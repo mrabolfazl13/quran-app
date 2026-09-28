@@ -13,7 +13,6 @@ pub fn run() {
             commands::content_status,
             commands::content_read_text,
             commands::content_pack_stat,
-            commands::sha256_text,
             commands::backup_write,
             commands::backup_read,
             commands::backup_list

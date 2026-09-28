@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { useApp } from '../app/app-state';
+import { gatewayStore } from './gatewayText';
 
 export type AsyncStatus = 'loading' | 'ready' | 'error';
 
@@ -144,7 +145,7 @@ export function StateBoundary<T>({
   if (info && !info.isShippedPath) {
     return (
       <div className="stack">
-        <div className="shell-note" title={info.database ?? 'in-memory dev store'}>
+        <div className="shell-note" title={gatewayStore(tr, info.storeId)}>
           {tr('پوستهٔ توسعه — داده در حافظهٔ مرورگر است و با بستهٔ نصبی فرقی دارد', 'Dev shell — data lives in browser memory, not the packaged database')}
         </div>
         {children(value)}

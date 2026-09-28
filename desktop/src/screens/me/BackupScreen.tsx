@@ -329,8 +329,8 @@ export function BackupScreen() {
               <p className="muted measure">
                 {value.info.mode === 'tauri'
                   ? tr(
-                      `در برنامهٔ نصبی، فایل‌ها با پسوند quranbak. در پوشهٔ backups کنار پایگاه داده نوشته و فقط با نام خوانده می‌شوند — نه با مسیر. پایگاه داده: ${value.info.database ?? '—'}`,
-                      `In the packaged app, .quranbak files are written into the backups folder next to the database and are addressed by NAME only, never by path. Database: ${value.info.database ?? '—'}`,
+                      `در برنامهٔ نصبی، فایل‌ها با پسوند quranbak. در پوشهٔ backups کنار پایگاه داده نوشته و فقط با نام خوانده می‌شوند — نه با مسیر. پایگاه داده: ${value.info.databasePath ?? '—'}`,
+                      `In the packaged app, .quranbak files are written into the backups folder next to the database and are addressed by NAME only, never by path. Database: ${value.info.databasePath ?? '—'}`,
                     )
                   : value.info.mode === 'web'
                     ? tr(

@@ -9,20 +9,22 @@
  * equals one of the query's — raw display bytes are never rewritten.
  *
  * The backend that answered (`searchBackend()`) is always rendered, and the
- * gateway's own note (`searchBackendNote()`) is printed verbatim beside it:
- * they are how a reviewer knows which search path produced the list. This
- * screen only labels paths a gateway can actually report today — it never
- * advertises one it does not run (see `backendLabel`).
+ * gateway's note (`searchBackendNote()`) is rendered beside it through
+ * `searchNote`: they are how a reviewer knows which search path produced the
+ * list. The gateway reports an id, this screen owns the wording. This screen
+ * only labels paths a gateway can actually report today — it never advertises
+ * one it does not run (see `backendLabel`).
  */
 import { useEffect, useState, type ReactNode } from 'react';
 
 import { normalizeWord, tokenizeWords } from '@quran/core';
 import type { SearchHit } from '../../gateway/types';
-import type { SearchBackend } from '../../gateway/types';
+import type { SearchBackend, SearchNoteId } from '../../gateway/types';
 import { useApp } from '../../app/app-state';
 import { shellSentence } from '../../app/labels';
 import type { RouteDef, RouteProps } from '../../app/router';
 import { StateBoundary, useAsync } from '../../ui/async';
+import { searchNote } from '../../ui/gatewayText';
 import { Chip, Field, LinkButton, Panel } from '../../ui/primitives';
 import './discover.css';
 
@@ -58,9 +60,10 @@ function fieldLabel(tr: (fa: string, en: string) => string, choice: FieldChoice)
  * makes no claim about it. Should a gateway start reporting it, the raw id is
  * echoed as a report rather than dressed up as a feature this screen verified.
  *
- * The gateway note is its own sentence, printed unedited; the Tauri note string
- * (`gateway/tauriGateway.ts`) currently mentions `core/src/search`, which this
- * screen neither controls nor can correct from here.
+ * The gateway note is a separate sentence about *which* path answered, and it
+ * arrives as an id — the wording is this screen's, translated in
+ * `ui/gatewayText.ts`, so nothing below the language boundary can put English
+ * into a Persian page.
  */
 function backendLabel(tr: (fa: string, en: string) => string, backend: SearchBackend): string {
   switch (backend) {
@@ -108,7 +111,7 @@ function highlight(text: string, query: string): ReactNode {
 interface SearchView {
   hits: SearchHit[];
   backend: SearchBackend;
-  note: string | null;
+  note: SearchNoteId | null;
 }
 
 /** Tokens drawn from the actual corpus — the empty-query suggestions. */
@@ -212,7 +215,7 @@ export function SearchScreen(_props: RouteProps) {
               {info ? (
                 <span className="faint">{shellSentence(tr, info.mode)}</span>
               ) : null}
-              {value.note ? <span className="faint mono">{value.note}</span> : null}
+              {value.note ? <span className="faint">{searchNote(tr, value.note)}</span> : null}
             </div>
           ) : null}
         </div>

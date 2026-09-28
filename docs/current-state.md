@@ -116,6 +116,16 @@ CDP — this is the packaged bundle, not `vite dev`.
   and no 404 screen; dark mode reached through the header control (one click
   from `system`) — body contrast 13.2:1, `lang="fa" dir="rtl"` on every route,
   Arabic with full vocalisation on the mushaf page unclipped in both themes.
+- **Both interface languages, on the shipped bundle**: with the setting driven
+  through the header control (the stored setting wins over `localStorage`, which
+  is why an earlier pass appeared to ignore the change), سلامت داده / درباره /
+  کاوش were probed for the seven sentences the gateway used to emit — **0 hits in
+  Persian mode**, and the header chip reads
+  «وب‌اپ سروشده روی HTTP — همان کد، ذخیرهٔ مرورگر · IndexedDB — دادهٔ کاربر در
+  مرورگر، محتوا از همین مبدأ». English mode shows the English wording, and the
+  inline Latin terms (`IndexedDB`, `HTTP`, `memory-index`) do not flip the RTL
+  line. `ui/gatewayText.test.ts` pins both directions and fails when a Persian
+  entry is a copy of the English one (mutation-checked).
 - **Repackaging while the app runs is refused by Windows, not by the script**:
   `packageWeb.mjs` clears its output directory first, and if
   `node bin/serveWeb.mjs` is still running from inside it the build dies with
@@ -166,6 +176,7 @@ machine and drove the shipped window through WebView2 CDP on port 9777.
 | 13 | The recall session advertised «پخش صوت (بستهٔ صوتی نصب‌شده)» and offered a "I heard the audio" checkbox on a build where `content:validate` reports `صوت ۰` — a control for a feature no imported pack supports. The step now asks the gateway whether a track exists for that ayah and says so when none does | `screens/hifz/SessionRunnerScreen.tsx`, label in `screens/hifz/shared.tsx` |
 | 14 | **A restore silently did not persist.** `importBackup()` ended in the same debounced `touch()` as an ordinary edit, and the backup screen reloads the shell as soon as a restore reports success — the 350 ms timer died with the page and the restored rows never reached IndexedDB. The success message was a lie. The save is now awaited and the timer cleared before it returns | `importBackup` in `gateway/devGateway.ts`, pinned by `tests/integration/dev-gateway-browser-restore.test.ts` |
 | 15 | A backup written by a browser claimed `platform: "desktop"`, and the validator had no `web` value at all — so the honest file would have been refused by the enum while the dishonest one passed | `contracts/backup.ts`, `backup/export.ts`, `backup/validate.ts` (enum now `desktop \| mobile \| web`; unknown values still `bad-value`) |
+| 16 | The gateway wrote finished English sentences into a Persian interface: «برچسب: Web app served over HTTP…», «پایگاه داده: IndexedDB (user rows)…» and the search-backend note, all rendered verbatim on سلامت داده, درباره, the header chip's tooltip and the search screen. Same class as defect 7 (the scheduler's English reason prose), one layer down | `GatewayInfo.labelId`/`storeId`/`databasePath` and `SearchNoteId` in `gateway/types.ts`, wording in `ui/gatewayText.ts`, five screens |
 
 Defect 14 is the one worth the emphasis: it was invisible in every earlier round
 because the dev shell was reloaded by hand, minutes later, long after the timer
@@ -233,34 +244,26 @@ Run from the repository root (see [`testing.md`](testing.md)):
 
 | Command | Result on 2026-09-28 |
 | --- | --- |
-| `npm run test:core` | 24 files, **516 passed / 2 skipped** (8.0 s) |
-| `npm run test:desktop` | 5 files, **29 passed** (4.3 s) |
-| `npm run test:integration` | 7 files, **86 passed** (37.0 s) — includes the new browser-restore suite |
+| `npm run test:core` | 24 files, **516 passed / 2 skipped** (5.5 s) |
+| `npm run test:desktop` | 6 files, **33 passed** (6.8 s) — includes `ui/gatewayText.test.ts` |
+| `npm run test:integration` | 7 files, **86 passed** (34.8 s) — includes the new browser-restore suite |
 | `cd desktop && npx tsc --noEmit` | clean |
 | `npm run content:validate` | passes with 5 warnings (the Ibn Kathir empty rows `docs/tafsir-system.md` already explains) |
 
 ## Next tasks
 
-1. Write `tests/e2e/` so the installed-app journey above is repeatable, and run
+1. Rebuild the desktop installer so the shipped `.exe` carries defects 12–16's
+   fixes; the current install on this machine predates them. Tasks 2 and 3 are
+   written against that build, so they wait on this one.
+2. Write `tests/e2e/` so the installed-app journey above is repeatable, and run
    it with the network genuinely off.
-2. Localise the two gateway-prose strings that reach the Persian interface as
-   English (`GatewayInfo.label` = "Tauri + SQLite (shipped path)", and the FTS5
-   `searchBackendNote` sentence). The clean shape is a key + params from the
-   gateway, translated by the screen — a contracts change, so it goes through the
-   architect with every consumer updated in the same round.
 3. Uninstall cleanliness: run the NSIS uninstaller and record what survives in
    `%LOCALAPPDATA%` and `%APPDATA%`.
 4. Web target, what is genuinely left: the PWA **install** flow is unexercised
    (the manifest and service worker are shipped and offline-from-cache is proven,
    but no install prompt / standalone window has been driven), and
    `start.command` / `start.sh` have never run — only the Windows path has been
-   executed on this machine. The service worker's unused `quran:cache-content`
-   listener was deleted this round (packs reach the cache through its fetch
-   handler, which is what the offline evidence shows), so the web package must be
-   rebuilt before the shipped `sw.js` matches the tree.
-5. Rebuild the desktop installer so the shipped `.exe` carries defects 12–15's
-   fixes; the current install on this machine predates them.
-6. Remove the now-dead Rust command `sha256_text` (`src-tauri/src/commands.rs`,
-   registered in `lib.rs`): nothing calls it since backups seal through core.
-   Least privilege (§47) says it should not stay registered.
-7. Re-run `npm run content:build` + `stage:content` before any release build.
+   executed on this machine.
+5. Re-run `npm run content:build` + `stage:content` before any release build.
+   The staged trees on disk are from the current pack set; the desktop and web
+   bundles both read them through `stageContent.mjs`.

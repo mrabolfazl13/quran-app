@@ -13,6 +13,7 @@ import { shellName } from './labels';
 import { NAV, ROUTES } from './registry';
 import { navigate, useRoute } from './router';
 import { StateBoundary, useAsync } from '../ui/async';
+import { gatewayLabel, gatewayStore } from '../ui/gatewayText';
 import { Chip } from '../ui/primitives';
 import './shell.css';
 
@@ -44,7 +45,10 @@ function HeaderRight() {
     <div className="header__right">
       <OnlineChip />
       {info ? (
-        <Chip tone={info.isShippedPath ? 'accent' : 'warn'} title={`${info.label} · ${info.database ?? '—'}`}>
+        <Chip
+          tone={info.isShippedPath ? 'accent' : 'warn'}
+          title={`${gatewayLabel(tr, info.labelId)} · ${gatewayStore(tr, info.storeId)}`}
+        >
           {shellName(tr, info.mode)}
         </Chip>
       ) : null}

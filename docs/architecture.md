@@ -54,7 +54,7 @@ live:
   plus `invoke()` calls to the argument-validated commands in
   `desktop/src-tauri/src/commands.rs` (`app_paths`, `content_status`,
   `content_read_text`, `content_pack_stat`, `backup_write`, `backup_read`,
-  `backup_list`, `sha256_text`).
+  `backup_list`).
 - `DevGateway` — the same contract over the browser's own storage: content packs
   fetched and parsed into memory, the user's rows persisted to IndexedDB and
   re-applied on load. It serves two shells with one class, distinguished by

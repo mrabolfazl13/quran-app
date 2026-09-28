@@ -12,8 +12,9 @@ import { useCallback, useState } from 'react';
 import { useApp } from '../../app/app-state';
 import type { Tr } from '../../app/app-state';
 import type { RouteDef } from '../../app/router';
-import type { ContentCounts, GatewayInfo, ImportReport, PackRow } from '../../gateway/types';
+import type { ContentCounts, GatewayInfo, ImportReport, PackRow, SearchNoteId } from '../../gateway/types';
 import { StateBoundary, useAsync } from '../../ui/async';
+import { gatewayLabel, gatewayStore, searchNote } from '../../ui/gatewayText';
 import { Button, Panel } from '../../ui/primitives';
 import { ConfirmBox, LicenseChip, MeTabs, StatusLine, formatBytes, formatNumber, shortDigest, type Message } from './shared';
 import './me.css';
@@ -23,7 +24,7 @@ interface Health {
   counts: ContentCounts;
   packs: PackRow[];
   report: ImportReport | null;
-  backendNote: string | null;
+  backendNote: SearchNoteId | null;
 }
 
 /**
@@ -212,7 +213,7 @@ export function ContentHealthScreen() {
   );
 }
 
-function StoragePanel({ info, backendNote }: { info: GatewayInfo; backendNote: string | null }) {
+function StoragePanel({ info, backendNote }: { info: GatewayInfo; backendNote: SearchNoteId | null }) {
   const { tr } = useApp();
   return (
     <Panel title={tr('ذخیره‌گاه', 'Storage')}>
@@ -223,12 +224,17 @@ function StoragePanel({ info, backendNote }: { info: GatewayInfo; backendNote: s
         </div>
         <div>
           <dt>{tr('برچسب', 'Label')}</dt>
-          <dd>{info.label}</dd>
+          <dd>{gatewayLabel(tr, info.labelId)}</dd>
         </div>
         <div>
           <dt>{tr('پایگاه داده', 'Database')}</dt>
-          <dd className="mono" dir="ltr">
-            {info.database ?? tr('—', '—')}
+          <dd>
+            {gatewayStore(tr, info.storeId)}
+            {info.databasePath ? (
+              <span className="mono" dir="ltr">
+                {info.databasePath}
+              </span>
+            ) : null}
           </dd>
         </div>
         <div>
@@ -246,7 +252,7 @@ function StoragePanel({ info, backendNote }: { info: GatewayInfo; backendNote: s
           <dd className="mono">{info.searchBackend}</dd>
         </div>
       </dl>
-      {backendNote ? <p className="muted">{backendNote}</p> : null}
+      {backendNote ? <p className="muted">{searchNote(tr, backendNote)}</p> : null}
       {!info.isShippedPath ? (
         <p className="field__hint">
           {tr(

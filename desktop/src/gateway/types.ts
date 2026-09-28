@@ -48,6 +48,31 @@ export type { Bookmark, HifzItem, Note };
 export type GatewayMode = 'tauri' | 'web' | 'dev';
 
 /**
+ * What the shell is, as an id rather than a sentence. A gateway runs below the
+ * language boundary and has no `tr`; when it spoke English directly, that
+ * English landed in the middle of the Persian interface (defect 7 was the same
+ * bug in the review scheduler, and the fix is the same shape: emit a key and
+ * params, translate at the screen).
+ */
+export type GatewayLabelId = 'tauri-sqlite' | 'web-http' | 'dev-shell';
+
+/**
+ * Where the user's rows live. `databasePath` carries the real path when there is
+ * one, so this describes the storage kind and nothing else.
+ */
+export type GatewayStoreId =
+  | 'sqlite-file'
+  | 'browser-store-plus-origin-content'
+  | 'browser-store-plus-memory-content';
+
+/** Why the search backend is the one it is, shown on Data health and search. */
+export type SearchNoteId =
+  | 'fts5-order-plus-substring'
+  | 'fts5-unavailable'
+  | 'memory-index-dev'
+  | 'memory-index-web';
+
+/**
  * The search paths a gateway can report. `core-engine` was removed on
  * 2026-09-28: `CoreEngineSearchService` existed but no gateway constructed it,
  * so nothing ever answered under that id.
@@ -61,10 +86,12 @@ export type SearchBackend = 'sqlite-fts5' | 'like' | 'memory-index';
 
 export interface GatewayInfo {
   mode: GatewayMode;
-  /** Human label shown in the shell and on the Data health screen. */
-  label: string;
-  /** Where the database lives: a SQLite file path, or the dev store. */
-  database: string | null;
+  /** Which shell this is, as an id the UI translates. */
+  labelId: GatewayLabelId;
+  /** What holds the user's rows, as an id the UI translates. */
+  storeId: GatewayStoreId;
+  /** The SQLite file path, when there is one. Data, never prose. */
+  databasePath: string | null;
   contentRoot: string | null;
   schemaVersion: number;
   searchBackend: SearchBackend;
@@ -380,7 +407,7 @@ export interface DataGateway {
   search(query: string, options?: SearchOptions): Promise<SearchHit[]>;
   searchBackend(): Promise<SearchBackend>;
   /** Why a stronger backend was skipped, when relevant. Shown on Data health. */
-  searchBackendNote?(): Promise<string | null>;
+  searchBackendNote?(): Promise<SearchNoteId | null>;
 
   exportBackup(): Promise<BackupEnvelope>;
   importBackup(envelope: BackupEnvelope): Promise<MigrationResult>;

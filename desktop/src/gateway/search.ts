@@ -59,6 +59,7 @@ import type {
   SearchBackend,
   SearchDocRow,
   SearchHit,
+  SearchNoteId,
   SearchOptions,
   TranslationRow,
 } from './types';
@@ -348,7 +349,7 @@ export interface SqlReader {
 export interface SearchService {
   readonly backend: SearchBackend;
   /** Reason a higher-preference backend was skipped, shown in Data health. */
-  readonly note: string | null;
+  readonly noteId: SearchNoteId | null;
   search(query: string, options?: SearchOptions): Promise<SearchHit[]>;
 }
 
@@ -388,7 +389,7 @@ export class SqliteSearchService implements SearchService {
   constructor(
     private readonly client: SqlReader,
     readonly backend: 'sqlite-fts5' | 'like',
-    readonly note: string | null = null,
+    readonly noteId: SearchNoteId | null = null,
   ) {}
 
   async search(query: string, options: SearchOptions = {}): Promise<SearchHit[]> {
@@ -556,15 +557,15 @@ interface KeyedEntry {
 
 export class MemorySearchService implements SearchService {
   readonly backend = 'memory-index' as const;
-  readonly note: string | null;
+  readonly noteId: SearchNoteId;
   private keyed: KeyedEntry[] | null = null;
 
   constructor(
     private readonly docs: () => RawSearchDoc[],
     private readonly ayahs: () => AyahRow[],
-    note: string | null = 'browser dev shell index — same matchKey space, held in memory',
+    noteId: SearchNoteId = 'memory-index-dev',
   ) {
-    this.note = note;
+    this.noteId = noteId;
   }
 
   /** Drop the built keys after an import replaced the content rows. */

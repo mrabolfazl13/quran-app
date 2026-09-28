@@ -14,6 +14,7 @@ import type { Tr } from '../../app/app-state';
 import type { RouteDef } from '../../app/router';
 import type { PackRow } from '../../gateway/types';
 import { StateBoundary, useAsync } from '../../ui/async';
+import { gatewayLabel, gatewayStore } from '../../ui/gatewayText';
 import { Chip, Panel } from '../../ui/primitives';
 import pkg from '../../../package.json';
 import fontNotes from '../../assets/fonts/LICENCE-notes.json';
@@ -84,13 +85,17 @@ export function AboutScreen() {
             </div>
             <div>
               <dt>{tr('پوسته', 'Shell')}</dt>
-              <dd>{info ? info.label : tr('در حال باز شدن…', 'Opening…')}</dd>
+              <dd>{info ? gatewayLabel(tr, info.labelId) : tr('در حال باز شدن…', 'Opening…')}</dd>
             </div>
             <div>
               <dt>{tr('محل ذخیره', 'Storage location')}</dt>
-              <dd className="mono" dir="ltr">
-                {info?.database ?? '—'}
-              </dd>
+              {info?.databasePath ? (
+                <dd className="mono" dir="ltr">
+                  {info.databasePath}
+                </dd>
+              ) : (
+                <dd>{info ? gatewayStore(tr, info.storeId) : '—'}</dd>
+              )}
             </div>
             <div>
               <dt>{tr('پوشهٔ محتوا', 'Content folder')}</dt>

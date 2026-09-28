@@ -284,13 +284,6 @@ pub fn backup_read(app: tauri::AppHandle, name: String) -> Result<String, String
     fs::read_to_string(&path).map_err(|e| format!("backup read failed: {e}"))
 }
 
-/// sha256 over a UTF-8 string (backup envelopes), computed natively so the
-/// webview does not have to trust its own digest for restore decisions.
-#[tauri::command]
-pub fn sha256_text(text: String) -> String {
-    hex_lower(&Sha256::digest(text.as_bytes()))
-}
-
 #[tauri::command]
 pub fn backup_list(app: tauri::AppHandle) -> Result<Vec<BackupEntry>, String> {
     let dir = backups_dir(&app)?;

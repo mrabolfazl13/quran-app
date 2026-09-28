@@ -76,6 +76,7 @@ import type {
   NoteInput,
   PackRow,
   SearchHit,
+  SearchNoteId,
   SearchOptions,
   TafsirRow,
   TranslationOption,
@@ -301,8 +302,9 @@ export class TauriGateway implements DataGateway {
     this.contentRoot = paths.contentRoot;
     return {
       mode: 'tauri',
-      label: 'Tauri + SQLite (shipped path)',
-      database: `${paths.appData}\\quran.db`,
+      labelId: 'tauri-sqlite',
+      storeId: 'sqlite-file',
+      databasePath: `${paths.appData}\\quran.db`,
       contentRoot: paths.contentRoot,
       schemaVersion: this.schema?.version ?? SCHEMA_VERSION,
       searchBackend: (await this.searchBackend()) as GatewayInfo['searchBackend'],
@@ -353,11 +355,8 @@ export class TauriGateway implements DataGateway {
    */
   private async pickSearch(client: SqlClient): Promise<SearchService> {
     const backend = this.schema?.searchBackend === 'fts5' ? 'sqlite-fts5' : 'like';
-    const note =
-      backend === 'sqlite-fts5'
-        ? 'SQLite ayah_search: FTS5 bm25 order on the normalised Arabic column, normalised substring (LIKE) matching on the Persian and English translation columns'
-        : 'FTS5 module unavailable in this SQLite build — normalised substring (LIKE) matching on every column, Arabic included';
-    return new SqliteSearchService(client, backend, note);
+    const noteId = backend === 'sqlite-fts5' ? 'fts5-order-plus-substring' : 'fts5-unavailable';
+    return new SqliteSearchService(client, backend, noteId);
   }
 
   /**
@@ -407,9 +406,9 @@ export class TauriGateway implements DataGateway {
     return this.searchService.backend;
   }
 
-  async searchBackendNote(): Promise<string | null> {
+  async searchBackendNote(): Promise<SearchNoteId | null> {
     if (!this.searchService) this.searchService = await this.pickSearch(this.client());
-    return this.searchService.note;
+    return this.searchService.noteId;
   }
 
   // --------------------------------------------------------------- import

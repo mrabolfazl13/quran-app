@@ -141,6 +141,30 @@ Seven UI-gate defects found by exercising the app rather than building it:
   summary shapes and leaves the engine's numbers untouched; an unrecognised
   fragment still passes through rather than disappearing. 5 unit tests.
 
+Two more, both about what crosses the language boundary:
+
+- **The gateway wrote finished English sentences into a Persian interface**
+  (defect 16). `/me/content`, `/me/about`, the header shell chip, the search note
+  and `async.tsx` all rendered strings the gateway had already composed —
+  `"Tauri + SQLite (shipped path)"`, `"browser IndexedDB + memory-held content"`,
+  `"memory index (dev shell — no FTS5)"`. The gateway cannot translate, so it no
+  longer writes prose: `GatewayInfo` carries `labelId`, `storeId` and
+  `SearchNoteId` union types, `database` became `databasePath` (a path is data,
+  a sentence about a path is not), and one place — `desktop/src/ui/gatewayText.ts`
+  — turns ids into wording through exhaustive switches with no `default`, so a
+  new id is a compile error until it is answered in both languages. The ids are
+  shared by all three shells, so the web build can no longer describe itself as a
+  dev shell even by accident. 4 unit tests pin that every id has Persian *and*
+  English wording, that the two differ, and that a shell's wording never names
+  another shell. Verified on the packaged web bundle in Persian mode: 0 English
+  leaks over `/me/content`, `/me/about` and `/discover`, screenshot in dark RTL
+  with 0 overflow.
+- `sha256_text` was a Tauri command that hashed any string handed to it from the
+  frontend. Nothing called it after the backup work moved into `@quran/core`, so
+  it was deleted rather than left as a general-purpose hash oracle — AGENTS.md
+  §47 asks for least privilege over command lists. `content_pack_stat` covers the
+  one place a digest is still needed at the shell level.
+
 ### Known constraints
 
 - No audio bundled: licences unresolved, so the feature is absent rather than

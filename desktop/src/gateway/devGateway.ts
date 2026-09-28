@@ -57,6 +57,7 @@ import type {
   NoteInput,
   PackRow,
   SearchHit,
+  SearchNoteId,
   SearchOptions,
   TafsirRow,
   TranslationOption,
@@ -234,9 +235,7 @@ export class DevGateway implements DataGateway {
       // The web build is a shipped path, so it must not describe itself as a dev
       // shell. The index really is the same one — same `matchKey` space, held in
       // memory — what differs is who is serving the bytes it was built from.
-      this.shell === 'web'
-        ? 'memory index over the packs served by this origin — same matchKey space as the desktop app'
-        : undefined,
+      this.shell === 'web' ? 'memory-index-web' : 'memory-index-dev',
     );
   }
 
@@ -244,8 +243,9 @@ export class DevGateway implements DataGateway {
     return this.shell === 'web'
       ? {
           mode: 'web',
-          label: 'Web app served over HTTP — same code, browser storage',
-          database: 'IndexedDB (user rows) + content imported from this origin',
+          labelId: 'web-http',
+          storeId: 'browser-store-plus-origin-content',
+          databasePath: null,
           contentRoot: this.source.location,
           schemaVersion: SCHEMA_VERSION,
           searchBackend: 'memory-index',
@@ -253,8 +253,9 @@ export class DevGateway implements DataGateway {
         }
       : {
           mode: 'dev',
-          label: 'Browser dev shell — not the packaged app',
-          database: 'IndexedDB (user rows) + in-memory content',
+          labelId: 'dev-shell',
+          storeId: 'browser-store-plus-memory-content',
+          databasePath: null,
           contentRoot: this.source.location,
           schemaVersion: SCHEMA_VERSION,
           searchBackend: 'memory-index',
@@ -686,8 +687,8 @@ export class DevGateway implements DataGateway {
     return 'memory-index';
   }
 
-  async searchBackendNote(): Promise<string | null> {
-    return this.searchService.note;
+  async searchBackendNote(): Promise<SearchNoteId | null> {
+    return this.searchService.noteId;
   }
 
   // ------------------------------------------------------------ dashboard
