@@ -34,3 +34,4 @@ desktop/src-tauri/content/
 # packaged deliverables (scripts/packageWeb.mjs): a copied dist/, the staged
 # packs and the zip. Rebuildable in one command, and 37 MB of them.
 desktop/release/
+.shots/

@@ -1,0 +1,203 @@
+/* Modern Dashboard Styles */
+
+.dashboard-modern {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+  padding: var(--gutter);
+  min-height: 100dvh;
+}
+
+.dashboard-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.dashboard-header h1 {
+  margin: 0;
+}
+
+.dashboard-header p {
+  margin: 0;
+}
+
+/* Stats Grid Layout */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: var(--sp-4);
+}
+
+@media (min-width: 768px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
+  .stats-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* Stat Card Styling */
+.stat-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--sp-3);
+  padding: var(--sp-5);
+}
+
+.stat-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.stat-icon--gold {
+  background: var(--gold-soft);
+  color: var(--gold);
+}
+
+.stat-value {
+  font-size: var(--text-display);
+  font-weight: var(--weight-bold);
+  line-height: var(--lh-tight);
+  color: var(--text-strong);
+}
+
+.stat-label {
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+  color: var(--text-muted);
+}
+
+.stat-subtitle {
+  font-size: var(--text-dense);
+  color: var(--text-muted);
+}
+
+/* Action Card */
+.action-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-5);
+}
+
+.action-card h3 {
+  margin: 0;
+  text-align: center;
+}
+
+.action-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+/* Progress Card */
+.progress-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-5);
+}
+
+.progress-header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--accent-ink);
+}
+
+.progress-header h3 {
+  margin: 0;
+  font-size: var(--text-section);
+  font-weight: var(--weight-semibold);
+}
+
+.progress-stats {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.progress-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--sp-2) var(--sp-3);
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-control);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+[data-theme='dark'] .progress-item {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.progress-label {
+  font-size: var(--text-body);
+  color: var(--accent-ink);
+}
+
+.progress-value {
+  font-size: var(--text-strong-body);
+  font-weight: var(--weight-semibold);
+  color: var(--accent-ink);
+}
+
+/* Responsive Adjustments */
+@media (max-width: 375px) {
+  .dashboard-modern {
+    padding: var(--sp-3);
+  }
+
+  .stat-card {
+    padding: var(--sp-4);
+  }
+
+  .stat-icon {
+    width: 48px;
+    height: 48px;
+  }
+
+  .stat-icon svg {
+    width: 24px;
+    height: 24px;
+  }
+}
+
+/* Animation Enhancements */
+.card-enter {
+  animation: fade-in-up var(--dur-3) var(--ease-spring) both;
+}
+
+.card-enter:nth-child(1) {
+  animation-delay: 0ms;
+}
+
+.card-enter:nth-child(2) {
+  animation-delay: var(--stagger);
+}
+
+.card-enter:nth-child(3) {
+  animation-delay: calc(var(--stagger) * 2);
+}
+
+.card-enter:nth-child(4) {
+  animation-delay: calc(var(--stagger) * 3);
+}
