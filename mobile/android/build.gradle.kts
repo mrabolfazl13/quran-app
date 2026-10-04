@@ -1,0 +1,28 @@
+allprojects {
+    repositories {
+        // Multiple mirrors for better availability
+        maven { url = uri("https://maven.myket.ir") }                    // MyKet (Iranian)
+        maven { url = uri("https://repo.huaweicloud.com/repository/maven/") }  // Huawei Cloud - includes Google artifacts
+        maven { url = uri("https://mirrors.cloud.tencent.com/nexus/repository/maven-public/") }  // Tencent
+        // google() - unreachable due to network restrictions
+        mavenCentral()
+    }
+}
+
+val newBuildDir: Directory =
+    rootProject.layout.buildDirectory
+        .dir("../../build")
+        .get()
+rootProject.layout.buildDirectory.value(newBuildDir)
+
+subprojects {
+    val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
+    project.layout.buildDirectory.value(newSubprojectBuildDir)
+}
+subprojects {
+    project.evaluationDependsOn(":app")
+}
+
+tasks.register<Delete>("clean") {
+    delete(rootProject.layout.buildDirectory)
+}
