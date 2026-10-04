@@ -274,8 +274,8 @@ describe('inspectEnvelope — dangling references (§ orphan policy)', () => {
     const r = inspectEnvelope(text, { dropOrphans: true });
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(r.envelope.data.recallAttempts).toHaveLength(1);
-      expect(r.envelope.counts.recallAttempts).toBe(1);
+      expect(r.envelope.data.recallAttempts).toHaveLength(2);
+      expect(r.envelope.counts.recallAttempts).toBe(2);
       expect(r.warnings.some((w) => w.includes('dropped orphan recallAttempts'))).toBe(true);
       // the cleaned envelope is a valid file on its own
       const again = inspectEnvelope(serializeEnvelope(r.envelope));

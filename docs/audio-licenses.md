@@ -4,6 +4,18 @@
 audio pack exists in `content/`. The `audio` kind in `ContentPackManifest`
 and the `audio_track` table in `db.sql` are placeholders for a future round.
 
+Verified at pack level (recomputed from `content/index.json`, not from this
+document): all 8 shipped packs have `kind` in
+`quran-core | word-data | translation | tafsir | linguistic` — **zero packs of
+kind `audio`**, and no pack contains audio bytes. The assertion lives in
+`tests/integration/content-pack-manifests.test.ts` ("audio is not bundled, and
+docs/audio-licenses.md says so"), so an audio pack landing while this page
+still reads STUB fails the test suite instead of shipping silently.
+`audio_track` therefore has no rows to license yet; whatever lands in it must
+already carry a per-record `license_status` (the column is `NOT NULL` with a
+CHECK over `clear | attribution-required | unresolved`), so "blanket claim"
+has nowhere to live in the schema.
+
 When audio is added, each bundleable recitation must ship as its own pack
 with a real per-reciter/per-edition licence record — never one blanket
 statement. At minimum:

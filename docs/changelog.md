@@ -165,6 +165,64 @@ Two more, both about what crosses the language boundary:
   §47 asks for least privilege over command lists. `content_pack_stat` covers the
   one place a digest is still needed at the shell level.
 
+A stored-row defect in the hifz fingerprint (defect 17, tracked as task #34):
+
+- **A two-ayah memorisation target kept one chunk per position, not one per
+  ayah.** `hifz_segment.position`, `anchor_word.word_position` and
+  `hifz_transition.to_word` all count from the start of the **ayah** they sit in,
+  but the UNIQUE keys started at `item_id`, so `112:1` segment 0 and `112:2`
+  segment 0 were the same row as far as SQLite was concerned. The enrolment path
+  either dropped the second ayah's chunk or offset its number to dodge the
+  constraint — and an offset row describes a chunk the engine will never ask
+  about again, so the per-segment stability it carries is decoration.
+- Schema **v3** adds the NOT NULL `verse_key` these rows always carried inside
+  their own id (`{itemId}:{verseKey}:{tag}{n}`), and re-keys the three tables by
+  `(item_id, verse_key, …)`. Every consumer moved in the same round: the
+  contracts, the gateway writes and reads (`VERSE_KEY_ORDER_SQL`, because
+  `verse_key` is TEXT and plain text order sorts `2:10` between `2:1` and `2:2`),
+  the e2e witnesses, and the backup reader — which now validates, recovers and
+  writes the ayah through `fingerprintVerseKey`, so a file exported before the
+  column exists still restores (warning, not failure) while a row whose id says
+  nothing is refused instead of guessing a surah.
+- The migration is a real rebuild, not a default: `CREATE t__v3` → batched copy →
+  `DROP` → `RENAME`, foreign keys off before `BEGIN` and back on in `finally`,
+  `PRAGMA foreign_key_check` as the commit gate. An unplaceable row throws during
+  **derivation**, before any DDL, so a file that cannot migrate is left exactly as
+  it was and still opens at version 2. Positions are carried over byte-for-byte —
+  this step adds the ayah, it does not renumber the chunks. `BACKUP_SCHEMA_VERSION`
+  stays 1: the format was always semantically carrying the ayah in the row id.
+- 10 new integration tests (`tests/integration/hifz-schema-v2-to-v3.test.ts`)
+  over a real v2-shaped database: rows placed by the ayah their id names, the
+  inter-ayah transition included, both UNIQUE shapes (same position in two ayat
+  accepted, in one ayah refused), CHECKs and cascades surviving the rebuild, and
+  the abort-leaves-nothing-written case with its retry. The v1→v2 file now doubles
+  as the proof that a v1 file composes both steps in one open.
+
+- Two of the integration lane's whole-mushaf suites failed intermittently at
+  vitest's default 5 s budget while queued behind 15 other files of real SQLite.
+  They now carry a documented 60 s allowance (`MUSHAF_TIMEOUT`, `QUEUE_TIMEOUT`);
+  measured on an idle machine those bodies run 0.5–1.6 s, so the budget is a
+  scheduler concession and not a performance claim. Proved honest by re-running
+  the file with `--testTimeout=1`: the suite that carries the allowance still
+  passes, the 31-ayah suite that deliberately does not still fails (`docs/testing.md`).
+
+Verification code was wrong twice this round, in the direction of looking
+successful:
+
+- **The web journey judged a stale bundle** (defect 18). `desktop/dist` predated
+  the schema v3 work, so the run reported device-level results about code that
+  was not in the binary — red when the old bundle disagreed, and it would equally
+  have been green when the old bundle agreed. `assertBundleFresh`
+  (`tests/e2e/lib/launch.mjs`) now compares `dist/index.html` against every
+  `.ts/.tsx/.css/.sql` under `desktop/src` and `core/src` and refuses the run
+  before a server starts, naming the file and the rebuild command.
+- **A crashed runner exited 0** (defect 19). Its `catch` wrote a `NOTE`, so the
+  report read `PASS 1 · FAIL 0 · NOTE 2` and the process succeeded for a journey
+  that verified nothing. `Suite.fail` (`tests/e2e/lib/harness.mjs`) makes the
+  harness's own breakage a result; the stale-bundle refusal now exits 1 with a
+  FAIL row naming the reason. Both behaviours pinned by
+  `tests/integration/e2e-witness.test.ts` (8 tests).
+
 ### Known constraints
 
 - No audio bundled: licences unresolved, so the feature is absent rather than

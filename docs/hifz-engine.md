@@ -45,6 +45,12 @@ The engine is pure. Consequences that the rest of the product relies on:
 | `confusion.ts` | confusion groups (user-declared and engine-proposed) |
 | `session.ts` | session step builder, session report, stability advance |
 
+`segment.ts` derives the fingerprint **per ayah**, and every number it emits
+(segment `position`, anchor `word_position`, transition `to_word`) restarts at the
+beginning of each ayah in `HifzItem.sequence`. Storage therefore keys a row by
+`(item_id, verse_key, …)`, not `(item_id, …)` — see
+[memory-fingerprint.md](memory-fingerprint.md#the-row-address-is-per-ayah-not-per-item).
+
 ## Error classification (`classify.ts`)
 
 ### Alignment

@@ -15,7 +15,7 @@
  * which app produced the bytes a user carries between browsers.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { BackupEnvelope, VerseKey } from '@quran/core';
+import type { BackupEnvelope, RecallAttempt, VerseKey } from '@quran/core';
 import { computeDataChecksum, validateEnvelopeObject } from '@quran/core';
 import { DevGateway } from '../../desktop/src/gateway/devGateway';
 
@@ -151,5 +151,57 @@ describe('DevGateway backup — what survives a reload', () => {
     const web = new DevGateway({ shell: 'web' });
     const envelope = await web.exportBackup();
     expect(envelope.producedBy).toEqual({ app: 'quran-web', version: '0.1.0', platform: 'web' });
+  });
+});
+
+/**
+ * The browser store has no SQLite to enforce `hifz_attempt.item_id … ON DELETE
+ * CASCADE`, so the gateway has to be the cascade itself. It was not: removing an
+ * ayah pruned its segments, anchors and transitions and left every graded
+ * attempt behind — orphan rows that keep feeding stability, the review queue and
+ * the backup counts for an ayah the learner deleted, and a web user whose data
+ * diverges from a desktop user's on the same action. The E2E journey catches this
+ * at device level (`the user rows are deleted through the UI`); this pins it at
+ * storage level so the fix is named, not just observed.
+ */
+describe('DevGateway hifz cascade — the schema promise without SQLite', () => {
+  const attemptFor = (itemId: string): RecallAttempt => ({
+    id: `att-${itemId}-1`,
+    itemId,
+    verseKey: '112:1',
+    sessionId: null,
+    mode: 'full-ayah',
+    dimension: 'form',
+    startedAt: '2026-09-29T09:00:00.000Z',
+    completedAt: '2026-09-29T09:00:12.000Z',
+    produced: [{ position: 1, text: 'قُلْ' }],
+    cue: null,
+    expectedWordCount: 4,
+    correctWordCount: 1,
+    accuracy: 0.25,
+    errors: [],
+    durationMs: 12_000,
+    selfConfidence: null,
+    usedAudio: false,
+  });
+
+  it('takes a stored attempt with the item it belongs to, durably', async () => {
+    const gateway = new DevGateway({ shell: 'dev' });
+    await gateway.ready();
+    const item = await gateway.addHifzItem('112:1' as VerseKey);
+    await gateway.saveRecallAttempt(attemptFor(item.id));
+    expect((await gateway.recallAttempts(item.id)).length).toBe(1);
+
+    await gateway.removeHifzItem(item.id);
+    expect(await gateway.recallAttempts(), 'an attempt cannot outlive its item').toEqual([]);
+    expect(await gateway.hifzItems()).toEqual([]);
+
+    // And it stays deleted: the writes above still sit in `pendingTimers`, which
+    // a reload throws away, so only an awaited cascade survives to the next page.
+    pendingTimers.length = 0;
+    const reloaded = new DevGateway({ shell: 'dev' });
+    await reloaded.ready();
+    expect(await reloaded.recallAttempts()).toEqual([]);
+    expect(await reloaded.hifzItems()).toEqual([]);
   });
 });

@@ -1,6 +1,6 @@
 # Current state
 
-Updated 2026-09-28. Never record progress here that is not true of the tree.
+Updated 2026-09-30. Never record progress here that is not true of the tree.
 
 ## Phase
 
@@ -13,11 +13,13 @@ staged bundle served by `bin/serveWeb.mjs` on a local port, with no Tauri:
 content auto-imports, the user's rows live in IndexedDB, and the app keeps
 working with the server process killed. Android is phase 2.
 
-**One caveat about which binary is which.** The four fixes listed under "closed
-this round" are in the working tree and in the web package on disk, which is the
-build the web evidence below was produced from. The installed desktop app on
-this machine is still `83cfc26`'s installer — it must be rebuilt before those
-changes are claimed at desktop level.
+**One caveat about which binary is which.** The fixes numbered 12–17 below are in
+the working tree, and the web evidence above and the Tests table were produced
+from a bundle built out of that tree (`assertBundleFresh` refuses the run
+otherwise). The installed desktop app on this machine is still `83cfc26`'s
+installer — it must be rebuilt before those changes are claimed at desktop level.
+Defects 18–19 are in the verification harness only: no shipped binary ever
+contained them, and the desktop app's behaviour did not change with them.
 
 ## Completed
 
@@ -184,6 +186,38 @@ had fired. Reverting the fix makes the new test fail (1 failed / 2 passed);
 restoring it makes the suite pass, so the test pins the defect rather than the
 current code.
 
+## Defect closed this round (found in the stored rows, not on a screen)
+
+| # | Defect | Where |
+| --- | --- | --- |
+| 17 | **A two-ayah hifz target could not store its own fingerprint.** `hifz_segment.position`, `anchor_word.word_position` and `hifz_transition.to_word` restart at the beginning of every ayah in the item's `sequence`, but the three UNIQUE keys started at `item_id` — so `112:1`/segment 0 and `112:2`/segment 0 collided. Enrolment either dropped the second ayah's row or offset its number to dodge the constraint, and an offset row stores a position the engine will never ask for again, which makes the per-segment stability it carries meaningless. Schema **v3** adds the NOT NULL `verse_key` the rows always carried inside their own id (`{itemId}:{verseKey}:{tag}{n}`) and re-keys the tables by `(item_id, verse_key, …)` | `core/src/contracts/db.sql`, `desktop/src/db/schema.ts` (`migrateV2ToV3`), `desktop/src/gateway/tauriGateway.ts` (`VERSE_KEY_ORDER_SQL`), `core/src/backup/{restore,validate}.ts` (`fingerprintVerseKey`), pinned by `tests/integration/hifz-schema-v2-to-v3.test.ts` |
+
+The migration is a documented rebuild (`CREATE t__v3` → batched copy → `DROP` →
+`RENAME`) with foreign keys off before `BEGIN` and back on in a `finally`, and
+`PRAGMA foreign_key_check` as the commit gate. A row whose id names no ayah throws
+during derivation — **before** any DDL — so a file that cannot migrate is left
+exactly as it was and still opens at version 2. Positions are carried over
+byte-for-byte: this step adds the ayah, it does not renumber the chunks.
+`BACKUP_SCHEMA_VERSION` stays 1 (the file format always carried the ayah in the
+row id), while `SCHEMA_VERSION` goes 2 → 3; the two version lines are documented
+as separate in [`backup-format.md`](backup-format.md).
+
+## Defects closed this round (found in the verification harness, not in the app)
+
+| # | Defect | Where |
+| --- | --- | --- |
+| 18 | **The web journey judged a bundle that predated the code.** `desktop/dist` was built before the schema v3 work landed, so the run reported a device-level FAIL against a binary that never contained the change — and had the stale bundle still satisfied the assertions, it would have reported a PASS that proved nothing. `assertBundleFresh` now compares `dist/index.html` against every source that goes into it and refuses the run, naming the file and the rebuild command | `tests/e2e/lib/launch.mjs`, called from `tests/e2e/run.mjs` before the web server starts |
+| 19 | **A crashed runner exited 0.** The top-level `catch` in `run.mjs` recorded the failure as a `NOTE`, so a journey that verified nothing printed `PASS 1 · FAIL 0 · NOTE 2` and reported success. `Suite.fail` exists so the harness's own breakage is a result, not a footnote | `tests/e2e/lib/harness.mjs`, `run.mjs` |
+
+Both are pinned by `tests/integration/e2e-witness.test.ts` (8 tests): a fixture
+whose source file is newer than its `dist/index.html` is refused with the file
+name and `npm run desktop:build` in the message, a bundle newer than every source
+is accepted, a missing bundle is refused, non-source files do not count, and a
+`fail()` row makes `suite.failed` true where a `note()` row does not.
+
+The class of error matters more than the two lines: verification code is code, and
+this round it produced a confident wrong answer twice — once red, once green.
+
 ## Defects closed last round (found on the installed app, not in a test)
 
 | # | Defect | Where |
@@ -228,12 +262,13 @@ preview screen down (`screens/me/backupPreview.test.ts`).
   `Quran Platform_0.1.0_x64-setup.exe` (8,862,514 B) was installed and exercised
   — see the two "Verified this round" sections and
   [`packaging.md`](packaging.md).
-- **The E2E suite `docs/testing.md` describes does not exist.** There is no
-  `tests/e2e/`. The shipped path has been exercised by driving the installed
-  window over WebView2 CDP (scripts in `%TEMP%`, results recorded here), which
-  proves the flows but is not repeatable by `npm run`. Writing that suite is the
-  largest remaining gap between what the testing document promises and what the
-  repository contains.
+- **`tests/e2e/` exists and is repeatable, but its desktop leg has not been
+  re-run since the v3 work.** `npm run test:e2e` drives the *installed*
+  `quran-desktop.exe`, and the binary on this machine still predates defects
+  12–17's fixes, so the desktop-level numbers further down this file are the last
+  ones that are true of the code in the tree. The web leg
+  (`npm run test:e2e:web`) has been re-run against a fresh bundle this round —
+  see the Tests table.
 - **Offline gate is request-level, not cable-level.** This machine's adapter was
   never disabled; the evidence is 0 non-local requests out of 1,404 during an
   installed-app session. See [`testing.md`](testing.md).
@@ -242,21 +277,31 @@ preview screen down (`screens/me/backupPreview.test.ts`).
 
 Run from the repository root (see [`testing.md`](testing.md)):
 
-| Command | Result on 2026-09-28 |
+| Command | Result on 2026-09-29 |
 | --- | --- |
-| `npm run test:core` | 24 files, **516 passed / 2 skipped** (5.5 s) |
-| `npm run test:desktop` | 6 files, **33 passed** (6.8 s) — includes `ui/gatewayText.test.ts` |
-| `npm run test:integration` | 7 files, **86 passed** (34.8 s) — includes the new browser-restore suite |
+| `npm run test:core` | 26 files, **584 passed / 2 skipped** (3.2 s) |
+| `npm run test:desktop` | 7 files, **37 passed** (3.7 s) — includes `ui/gatewayText.test.ts` |
+| `npm run test:integration` | 17 files, **262 passed** — five consecutive runs, each exit 0, wall clock 14.8–23.8 s. Includes the v2 → v3 migration suite, `e2e-witness.test.ts`, and the fingerprint-over-rows integration that proves stored rows change on disk |
+| `npm run test:e2e:web` | **PASS 36 · FAIL 0 · ERROR 0 · SKIP 4 · NOTE 17**, exit 0, against a freshly built `desktop/dist` (the freshness guard ran and passed). 66 screens measured in the layout sweep, 0 sideways overflow; 37 requests, 0 non-local |
 | `cd desktop && npx tsc --noEmit` | clean |
 | `npm run content:validate` | passes with 5 warnings (the Ibn Kathir empty rows `docs/tafsir-system.md` already explains) |
 
+The integration lane is reported as five runs rather than one because two of its
+whole-mushaf tests used to fail intermittently at vitest's 5 s default while
+queued behind 15 other files of real SQLite; `docs/testing.md` records the
+measured budgets and the `--testTimeout=1` check that shows the allowance does
+not hide a slow test.
+
 ## Next tasks
 
-1. Rebuild the desktop installer so the shipped `.exe` carries defects 12–16's
+1. Rebuild the desktop installer so the shipped `.exe` carries defects 12–17's
    fixes; the current install on this machine predates them. Tasks 2 and 3 are
    written against that build, so they wait on this one.
-2. Write `tests/e2e/` so the installed-app journey above is repeatable, and run
-   it with the network genuinely off.
+2. Run `npm run test:e2e` — the desktop leg of the journey — on that rebuilt
+   binary, and record its device-level numbers here. The harness
+   (`tests/e2e/`, `docs/testing.md`) exists and its web leg passes on the current
+   tree; what is missing is a desktop run against a build that contains this
+   round's schema v3 migration.
 3. Uninstall cleanliness: run the NSIS uninstaller and record what survives in
    `%LOCALAPPDATA%` and `%APPDATA%`.
 4. Web target, what is genuinely left: the PWA **install** flow is unexercised
@@ -264,6 +309,8 @@ Run from the repository root (see [`testing.md`](testing.md)):
    but no install prompt / standalone window has been driven), and
    `start.command` / `start.sh` have never run — only the Windows path has been
    executed on this machine.
-5. Re-run `npm run content:build` + `stage:content` before any release build.
+5. **Hifz method, the part that is still not true: per-segment and per-hinge fingerprint state now updates on every graded recitation.** The engine decides which rows moved (identity diff), the facade passes them to the gateway, and only stateful columns are written — tiling remains immutable. Proven by integration test reading raw SQLite rows before/after (`tests/integration/hifz-fingerprint-over-rows.test.ts`, 7 tests). Core unit tests pin the update logic (16 tests in `core/tests/hifz/fingerprint-update.test.ts`). The dual-axis view the method promises is now chunk-level as well as item-level.
+
+6. Re-run `npm run content:build` + `stage:content` before any release build.
    The staged trees on disk are from the current pack set; the desktop and web
    bundles both read them through `stageContent.mjs`.

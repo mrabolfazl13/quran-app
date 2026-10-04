@@ -15,7 +15,8 @@
 
 import { BACKUP_SCHEMA_VERSION, type BackupEnvelope, type BackupUserData } from '../contracts/backup';
 import { PAGE_COUNT, SURAH_COUNT } from '../contracts/quran';
-import type { ErrorKind, RecallMode } from '../contracts/hifz';
+import type { ErrorKind, RecallDimension, RecallMode, SegmentMeaning } from '../contracts/hifz';
+import { fingerprintVerseKey } from '../hifz/segment';
 import { canonicalJsonStringify, utf8Bytes } from './canonical-json';
 import { computeCounts, computeDataChecksum, DATA_KEYS } from './export';
 import { settingKeys } from './settings';
@@ -56,9 +57,21 @@ export const RECALL_MODE_VALUES = [
   'audio-recall',
   'full-ayah',
   'full-sequence',
+  'meaning-to-arabic',
+  'concept-cue',
 ] as const satisfies readonly RecallMode[];
 type _ModesComplete = RecallMode extends (typeof RECALL_MODE_VALUES)[number] ? true : never;
 export const _modesComplete: _ModesComplete = true;
+
+/** Mirror of the `meaning_lang` CHECK in `contracts/db.sql`. */
+export const MEANING_LANG_VALUES = ['fa', 'ar', 'en'] as const satisfies readonly SegmentMeaning['lang'][];
+type _LangsComplete = SegmentMeaning['lang'] extends (typeof MEANING_LANG_VALUES)[number] ? true : never;
+export const _langsComplete: _LangsComplete = true;
+
+/** Mirror of the `dimension` CHECK on `hifz_attempt`. */
+export const RECALL_DIMENSION_VALUES = ['form', 'meaning'] as const satisfies readonly RecallDimension[];
+type _DimensionsComplete = RecallDimension extends (typeof RECALL_DIMENSION_VALUES)[number] ? true : never;
+export const _dimensionsComplete: _DimensionsComplete = true;
 
 export type ValidationErrorCode =
   | 'too-large'
@@ -135,10 +148,22 @@ class Ctx {
   }
 
   // --- field readers: each returns the value when valid, undefined otherwise
+  //
+  // `optional: true` is for a field a real, older envelope cannot have: the
+  // schema-v2 axes (`formStability`, `meaningStability`, `dimension`). Absent is
+  // a legitimate reading of those files — `restore.ts` supplies the documented
+  // fallback — so it must not be reported as corruption. It stays an error for
+  // every field without the flag.
 
-  string(row: Record<string, unknown>, path: string, field: string, opts: { nullable?: boolean } = {}): string | null | undefined {
+  string(
+    row: Record<string, unknown>,
+    path: string,
+    field: string,
+    opts: { nullable?: boolean; optional?: boolean } = {},
+  ): string | null | undefined {
     const v = row[field];
-    if (v === undefined || (v === null && opts.nullable)) return opts.nullable ? null : this.missing(path, field);
+    if (v === undefined) return opts.optional ? undefined : this.missing(path, field);
+    if (v === null) return opts.nullable ? null : this.badType(path, field, 'string', v);
     if (typeof v !== 'string') return this.badType(path, field, 'string', v);
     return v;
   }
@@ -152,16 +177,22 @@ class Ctx {
     return s;
   }
 
-  int(row: Record<string, unknown>, path: string, field: string, opts: { min?: number; max?: number; nullable?: boolean } = {}): number | null | undefined {
+  int(row: Record<string, unknown>, path: string, field: string, opts: { min?: number; max?: number; nullable?: boolean; optional?: boolean } = {}): number | null | undefined {
     const n = this.number(row, path, field, opts);
     if (n === undefined || n === null) return n ?? undefined;
     if (!Number.isInteger(n)) return this.badValue(path, field, `expected an integer, got ${n}`);
     return n;
   }
 
-  number(row: Record<string, unknown>, path: string, field: string, opts: { min?: number; max?: number; nullable?: boolean } = {}): number | null | undefined {
+  number(
+    row: Record<string, unknown>,
+    path: string,
+    field: string,
+    opts: { min?: number; max?: number; nullable?: boolean; optional?: boolean } = {},
+  ): number | null | undefined {
     const v = row[field];
-    if (v === undefined || (v === null && opts.nullable)) return opts.nullable ? null : this.missing(path, field);
+    if (v === undefined) return opts.optional ? undefined : this.missing(path, field);
+    if (v === null) return opts.nullable ? null : this.badType(path, field, 'finite number', v);
     if (typeof v !== 'number' || !Number.isFinite(v)) return this.badType(path, field, 'finite number', v);
     if (opts.min !== undefined && v < opts.min) return this.badValue(path, field, `must be >= ${opts.min} (got ${v})`);
     if (opts.max !== undefined && v > opts.max) return this.badValue(path, field, `must be <= ${opts.max} (got ${v})`);
@@ -178,8 +209,14 @@ class Ctx {
     return v;
   }
 
-  enum<T extends string>(row: Record<string, unknown>, path: string, field: string, choices: readonly T[]): T | undefined {
-    const v = this.string(row, path, field);
+  enum<T extends string>(
+    row: Record<string, unknown>,
+    path: string,
+    field: string,
+    choices: readonly T[],
+    opts: { optional?: boolean } = {},
+  ): T | undefined {
+    const v = this.string(row, path, field, opts);
     if (v === undefined || v === null) return undefined;
     if (!(choices as readonly string[]).includes(v)) {
       return this.badValue(path, field, `must be one of: ${choices.join(', ')} (got "${truncate(v)}")`);
@@ -199,6 +236,29 @@ class Ctx {
     }
     if (verse < 1) return this.badValue(path, field, `verse must be >= 1 (got ${verse})`);
     return v;
+  }
+
+  /**
+   * The ayah a fingerprint row numbers inside — `verseKey`, or the ayah its own
+   * `id` spells out.
+   *
+   * A segment's `position`, an anchor's `wordPosition` and a transition's
+   * `toWord` all restart per ayah, so a row without one cannot be placed. Files
+   * exported before the column existed are not corrupt though: their ids always
+   * carried the ayah, so recovery is a warning and the row is restored. A row
+   * whose id carries nothing is corruption, and is reported as such.
+   */
+  fingerprintRowVerseKey(row: Record<string, unknown>, path: string): string | undefined {
+    if (row.verseKey === undefined) {
+      const recovered = fingerprintVerseKey(row);
+      if (recovered === null) {
+        this.error('bad-value', path, 'no verseKey, and its id does not carry one — the row cannot be placed in an ayah');
+        return undefined;
+      }
+      this.warn(`${path}: verse key "${recovered}" recovered from the row id (a file written before the fingerprint rows carried verse_key)`);
+      return recovered;
+    }
+    return this.verseKey(row, path, 'verseKey') ?? undefined;
   }
 
   array(row: Record<string, unknown>, path: string, field: string): unknown[] | undefined {
@@ -222,9 +282,15 @@ class Ctx {
     }
   }
 
-  object(row: Record<string, unknown>, path: string, field: string, opts: { nullable?: boolean } = {}): Record<string, unknown> | null | undefined {
+  object(
+    row: Record<string, unknown>,
+    path: string,
+    field: string,
+    opts: { nullable?: boolean; optional?: boolean } = {},
+  ): Record<string, unknown> | null | undefined {
     const v = row[field];
-    if (v === undefined || (v === null && opts.nullable)) return opts.nullable ? null : this.missing(path, field);
+    if (v === undefined) return opts.optional ? undefined : this.missing(path, field);
+    if (v === null) return opts.nullable ? null : this.badType(path, field, 'object', v);
     if (!isPlainObject(v)) return this.badType(path, field, 'object', v);
     return v;
   }
@@ -538,6 +604,11 @@ function validateUserData(ctx: Ctx, data: Record<string, unknown>): void {
     ctx.enum(r, path('hifzItems', i), 'status', ['active', 'paused', 'graduated', 'dropped'] as const);
     ctx.enum(r, path('hifzItems', i), 'band', ['new', 'unstable', 'weak', 'stable', 'mastered'] as const);
     ctx.number(r, path('hifzItems', i), 'stability', { min: 0, max: 1 });
+    // The two axes. `formStability` is required in a current file but read as
+    // optional here so a v1 backup stays importable; `meaningStability` is
+    // nullable *and* optional, because "never probed" is a state, not a zero.
+    ctx.number(r, path('hifzItems', i), 'formStability', { min: 0, max: 1, optional: true });
+    ctx.number(r, path('hifzItems', i), 'meaningStability', { min: 0, max: 1, nullable: true, optional: true });
     ctx.number(r, path('hifzItems', i), 'strength', { min: 0, max: 1 });
     ctx.timestamp(r, path('hifzItems', i), 'lastReviewedAt', { nullable: true });
     ctx.timestamp(r, path('hifzItems', i), 'nextReviewAt', { nullable: true });
@@ -598,6 +669,7 @@ function validateUserData(ctx: Ctx, data: Record<string, unknown>): void {
     const id = ctx.string(r, path('hifzSegments', i), 'id');
     ctx.claimId(typeof id === 'string' ? id : undefined, path('hifzSegments', i));
     const itemId = ctx.string(r, path('hifzSegments', i), 'itemId');
+    ctx.fingerprintRowVerseKey(r, path('hifzSegments', i));
     ctx.int(r, path('hifzSegments', i), 'position', { min: 0 });
     const from = ctx.int(r, path('hifzSegments', i), 'fromWord', { min: 1 });
     const to = ctx.int(r, path('hifzSegments', i), 'toWord', { min: 1 });
@@ -605,9 +677,29 @@ function validateUserData(ctx: Ctx, data: Record<string, unknown>): void {
       ctx.error('out-of-range', path('hifzSegments', i), `fromWord ${from} > toWord ${to}`);
     }
     ctx.string(r, path('hifzSegments', i), 'text');
-    ctx.string(r, path('hifzSegments', i), 'meaningFa', { nullable: true });
-    ctx.string(r, path('hifzSegments', i), 'meaningSource', { nullable: true });
+    // The meaning of a chunk is one object or nothing: text, the language it is
+    // written in, the licensed pack it came from, and whether it is the joined
+    // gloss of this chunk's own word rows. A free-text label with no pack behind
+    // it is exactly what the v2 schema refuses to keep, so the pack id is
+    // required whenever a text is present.
+    const meaning = ctx.object(r, path('hifzSegments', i), 'meaning', { nullable: true, optional: true });
+    if (meaning) {
+      const mp = `${path('hifzSegments', i)}.meaning`;
+      const meaningText = ctx.string(meaning, mp, 'text');
+      if (typeof meaningText === 'string' && meaningText.trim() === '') {
+        ctx.error('bad-value', `${mp}.text`, 'meaning text is blank — the contract says an uncovered chunk has meaning: null');
+      }
+      ctx.enum(meaning, mp, 'lang', MEANING_LANG_VALUES);
+      ctx.string(meaning, mp, 'packId');
+      ctx.boolean(meaning, mp, 'wordGloss');
+    }
     ctx.number(r, path('hifzSegments', i), 'stability', { min: 0, max: 1 });
+    ctx.number(r, path('hifzSegments', i), 'meaningStability', {
+      min: 0,
+      max: 1,
+      nullable: true,
+      optional: true,
+    });
     ctx.int(r, path('hifzSegments', i), 'errorCount', { min: 0 });
     if (typeof itemId === 'string' && itemId && !itemIds.has(itemId)) {
       ctx.orphans.push({ dataKey: 'hifzSegments', index: i, id: typeof id === 'string' ? id : null, missing: `hifzItem "${itemId}"` });
@@ -620,6 +712,7 @@ function validateUserData(ctx: Ctx, data: Record<string, unknown>): void {
     const id = ctx.string(r, path('anchorWords', i), 'id');
     ctx.claimId(typeof id === 'string' ? id : undefined, path('anchorWords', i));
     const itemId = ctx.string(r, path('anchorWords', i), 'itemId');
+    ctx.fingerprintRowVerseKey(r, path('anchorWords', i));
     ctx.int(r, path('anchorWords', i), 'wordPosition', { min: 1 });
     ctx.string(r, path('anchorWords', i), 'text');
     ctx.enum(r, path('anchorWords', i), 'role', ['opening', 'middle', 'ending', 'boundary'] as const);
@@ -635,6 +728,7 @@ function validateUserData(ctx: Ctx, data: Record<string, unknown>): void {
     const id = ctx.string(r, path('hifzTransitions', i), 'id');
     ctx.claimId(typeof id === 'string' ? id : undefined, path('hifzTransitions', i));
     const itemId = ctx.string(r, path('hifzTransitions', i), 'itemId');
+    ctx.fingerprintRowVerseKey(r, path('hifzTransitions', i));
     ctx.enum(r, path('hifzTransitions', i), 'kind', ['intra', 'inter'] as const);
     ctx.verseKey(r, path('hifzTransitions', i), 'toVerseKey', { nullable: true });
     ctx.int(r, path('hifzTransitions', i), 'toWord', { min: 1 });
@@ -657,6 +751,10 @@ function validateUserData(ctx: Ctx, data: Record<string, unknown>): void {
     ctx.verseKey(r, p, 'verseKey');
     const sessionId = ctx.string(r, p, 'sessionId', { nullable: true });
     ctx.enum(r, p, 'mode', RECALL_MODE_VALUES);
+    // Stored, not re-derived at read time, so a report cannot quietly relabel a
+    // meaning drill as verbatim recall. Optional here because a v1 file has no
+    // such field; `restore.ts` re-derives it from the mode for those rows.
+    ctx.enum(r, p, 'dimension', RECALL_DIMENSION_VALUES, { optional: true });
     ctx.timestamp(r, p, 'startedAt');
     ctx.timestamp(r, p, 'completedAt', { nullable: true });
 
@@ -675,6 +773,12 @@ function validateUserData(ctx: Ctx, data: Record<string, unknown>): void {
     if (cue) {
       ctx.string(cue, `${p}.cue`, 'kind');
       ctx.string(cue, `${p}.cue`, 'text', { nullable: true });
+      // Provenance of the prompt itself: a meaning cue records the language and
+      // licensed pack its text came from, so the drill can be re-shown from the
+      // same source instead of an unlabeled string. Optional because a form-mode
+      // cue has neither, and a v1 file has neither for any mode.
+      ctx.enum(cue, `${p}.cue`, 'lang', MEANING_LANG_VALUES, { optional: true });
+      ctx.string(cue, `${p}.cue`, 'packId', { optional: true });
     }
 
     const expected = ctx.int(r, p, 'expectedWordCount', { min: 0 });

@@ -43,6 +43,41 @@ derived segments and anchors) while `hifz_attempt.item_id` also cascades — so
 dropping an item destroys its history. That is deliberate but destructive, and
 the UI must confirm it explicitly rather than treat it as a toggle.
 
+## The fingerprint tables are keyed by ayah, not just by item
+
+`hifz_segment.(item_id, verse_key, position)`,
+`anchor_word.(item_id, verse_key, word_position, role)` and
+`hifz_transition.(item_id, verse_key, kind, to_word, to_verse_key)`.
+
+The ayah is part of the identity because the number beside it is not item-wide:
+a segment's `position`, an anchor's `word_position` and a transition's `to_word`
+all count from the start of the ayah they sit in, so one item that tiles two ayat
+has a segment 0, a word 1 and a boundary in **each** of them. Through schema v2
+the UNIQUE key started at `item_id`, which meant a two-ayah item could only keep
+one of those rows — the enrolment path either dropped the second ayah's chunk or
+offset its number to dodge the constraint, and both made the stored row describe
+a chunk the engine would never ask about again. v3 added the NOT NULL
+`verse_key` column these rows had always carried in the engine's own id
+(`{itemId}:{verseKey}:{tag}{n}`, `core/src/hifz/segment.ts`).
+
+The same rule reaches every reader: `ORDER BY verse_key, position` uses
+`VERSE_KEY_ORDER_SQL` (`desktop/src/gateway/tauriGateway.ts`), which casts both
+halves of the key, because `verse_key` is TEXT and plain text order sorts `2:10`
+between `2:1` and `2:2`.
+
+How v2 files reach that shape is a real migration, not a guess. SQLite cannot drop
+a UNIQUE constraint, so the step rebuilds each fingerprint table beside itself
+(`CREATE t__v3` → copy → `DROP` → `RENAME`), derives every row's ayah with the same
+`verseKeyFromFingerprintId` the backup reader uses, and writes through the batched
+`insertRows` path — never one statement per record, which is what made the import
+measurably slow. Foreign keys are switched off *before* `BEGIN` (the pragma is a
+no-op inside a transaction) and back on in a `finally`; `PRAGMA foreign_key_check`
+is the commit gate. A row that cannot be placed throws during derivation — that is
+**before** any DDL, so the file is left untouched and reopenable at version 2, and
+the user's data is never half-migrated. Positions are carried over byte-for-byte
+exactly as `core/src/backup/restore.ts` carries them: this step adds the ayah, it
+does not renumber the chunks.
+
 ## Enum discipline
 
 Statuses are CHECK-constrained strings, not integers: bands

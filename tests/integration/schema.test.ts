@@ -300,10 +300,10 @@ describe('schema: CHECK constraints reject bad enums', () => {
   it('rejects an unknown anchor role, transition kind and confusion origin', () => {
     const itemId = insertHifzItem(h, { verseKey: '1:1' });
     expect(() =>
-      h.run("INSERT INTO anchor_word (id, item_id, word_position, text, role) VALUES ('aw-bad',?,1,'ب','pivot')", [itemId]),
+      h.run("INSERT INTO anchor_word (id, item_id, verse_key, word_position, text, role) VALUES ('aw-bad',?,'1:1',1,'ب','pivot')", [itemId]),
     ).toThrow(/CHECK constraint failed/);
     expect(() =>
-      h.run("INSERT INTO hifz_transition (id, item_id, kind, to_word) VALUES ('tr-bad',?,'sideways',2)", [itemId]),
+      h.run("INSERT INTO hifz_transition (id, item_id, verse_key, kind, to_word) VALUES ('tr-bad',?,'1:1','sideways',2)", [itemId]),
     ).toThrow(/CHECK constraint failed/);
     expect(() =>
       h.run("INSERT INTO confusion_group (id, origin, created_at) VALUES ('cg-bad','imported',?)", [EPOCH_ISO]),
@@ -507,27 +507,34 @@ describe('schema: keys, uniqueness and referential integrity', () => {
     h.run("DELETE FROM similar_ayah WHERE produced_by LIKE 'qa-%'");
   });
 
-  it('enforces UNIQUE (item_id, position) on hifz_segment', () => {
+  it('enforces UNIQUE (item_id, verse_key, position) on hifz_segment', () => {
     const itemId = insertHifzItem(h, { verseKey: '1:1' });
-    insertHifzSegment(h, { itemId, position: 0, fromWord: 1, toWord: 1, text: 'بسم' });
+    insertHifzSegment(h, { itemId, verseKey: '1:1', position: 0, fromWord: 1, toWord: 1, text: 'بسم' });
     expectRejection(
-      () => insertHifzSegment(h, { itemId, position: 0, fromWord: 2, toWord: 3, text: 'الله' }),
+      () => insertHifzSegment(h, { itemId, verseKey: '1:1', position: 0, fromWord: 2, toWord: 3, text: 'الله' }),
       isUniqueFailure,
-      'hifz_segment UNIQUE (item_id, position)',
+      'hifz_segment UNIQUE (item_id, verse_key, position)',
     );
+    // The same position number in the next ayah is a different chunk, not a
+    // duplicate — that restart per ayah is the whole reason the column exists.
+    insertHifzSegment(h, { itemId, verseKey: '1:2', position: 0, fromWord: 1, toWord: 2, text: 'الرحمن' });
+    expect(h.count('hifz_segment', 'item_id = ?', [itemId])).toBe(2);
     h.run('DELETE FROM hifz_item WHERE id = ?', [itemId]);
   });
 
-  it('enforces UNIQUE (item_id, word_position, role) on anchor_word', () => {
+  it('enforces UNIQUE (item_id, verse_key, word_position, role) on anchor_word', () => {
     const itemId = insertHifzItem(h, { verseKey: '1:1' });
-    h.run("INSERT INTO anchor_word (id, item_id, word_position, text, role) VALUES ('uq-1',?,1,'بسم','opening')", [itemId]);
+    h.run("INSERT INTO anchor_word (id, item_id, verse_key, word_position, text, role) VALUES ('uq-1',?,'1:1',1,'بسم','opening')", [itemId]);
     expectRejection(
       () =>
-        h.run("INSERT INTO anchor_word (id, item_id, word_position, text, role) VALUES ('uq-2',?,1,'بسم','opening')", [itemId]),
+        h.run("INSERT INTO anchor_word (id, item_id, verse_key, word_position, text, role) VALUES ('uq-2',?,'1:1',1,'بسم','opening')", [itemId]),
       isUniqueFailure,
-      'anchor_word (item_id, word_position, role) unique key',
+      'anchor_word (item_id, verse_key, word_position, role) unique key',
     );
-    h.run("INSERT INTO anchor_word (id, item_id, word_position, text, role) VALUES ('uq-3',?,1,'بسم','boundary')", [itemId]);
+    h.run("INSERT INTO anchor_word (id, item_id, verse_key, word_position, text, role) VALUES ('uq-3',?,'1:1',1,'بسم','boundary')", [itemId]);
+    // Every ayah has a word 1, so word 1 of the next ayah anchors its own row.
+    h.run("INSERT INTO anchor_word (id, item_id, verse_key, word_position, text, role) VALUES ('uq-4',?,'1:2',1,'الحمد','opening')", [itemId]);
+    expect(h.count('anchor_word', 'item_id = ?', [itemId])).toBe(3);
     h.run('DELETE FROM hifz_item WHERE id = ?', [itemId]);
   });
 

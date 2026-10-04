@@ -144,7 +144,7 @@
     "verseKeysFrom": "1:1",
     "verseKeysTo": "114:6"
   },
-  "generatedAt": "2026-09-28T02:06:07.995Z",
+  "generatedAt": "2026-09-28T19:14:05.916Z",
   "generator": "@quran/content/src/build.ts v0.1.0",
   "derived": {
     "computed": true,

@@ -50,6 +50,8 @@ import type {
   RecitedWord,
 } from '../../core/src/contracts/hifz';
 import type { Ayah, AyahWord, Surah, Translation, VerseKey } from '../../core/src/contracts/quran';
+import type { SqlClient } from '../../desktop/src/db/schema';
+import { attemptDimension } from '../../core/src/hifz/stability';
 import { normalizeWord } from '../../core/src/normalize/arabic';
 import { nextId, resetIds } from './ids';
 import { EPOCH_ISO } from './clock';
@@ -299,6 +301,20 @@ export function isUniqueFailure(error: unknown): boolean {
   return /UNIQUE constraint failed/i.test(message);
 }
 
+/**
+ * `node:sqlite` behind the same `SqlClient` the shipped migration chain runs
+ * against, so a migration test exercises `ensureSchema` itself rather than a
+ * re-typed copy of it. Both migration files need exactly this.
+ */
+export function asSqlClient(db: DatabaseSync): SqlClient {
+  return {
+    select: async <TRow>(sql: string, params?: unknown[]): Promise<TRow[]> =>
+      db.prepare(sql).all(...toBindList(params ?? [])) as TRow[],
+    execute: async (sql: string, params?: unknown[]): Promise<number> =>
+      Number(db.prepare(sql).run(...toBindList(params ?? [])).changes),
+  };
+}
+
 /* -------------------------------------------------------------------- inserters */
 
 export function insertSurah(h: TestHandle, s: Surah): void {
@@ -457,7 +473,16 @@ export interface HifzItemSeed extends Partial<Omit<HifzItem, 'id'>> {
 export function insertHifzItem(h: TestHandle, seed: HifzItemSeed): string {
   const item: Required<
     Pick<HifzItem, 'id' | 'verseKey' | 'sequence' | 'addedAt' | 'status' | 'band'>
-  > & { stability: number; strength: number; lastReviewedAt: string | null; nextReviewAt: string | null; attemptCount: number; errorCount: number } = {
+  > & {
+    stability: number;
+    formStability: number;
+    meaningStability: number | null;
+    strength: number;
+    lastReviewedAt: string | null;
+    nextReviewAt: string | null;
+    attemptCount: number;
+    errorCount: number;
+  } = {
     id: seed.id ?? nextId('hifz-item'),
     verseKey: seed.verseKey ?? '1:1',
     sequence: seed.sequence ?? [seed.verseKey ?? '1:1'],
@@ -465,6 +490,10 @@ export function insertHifzItem(h: TestHandle, seed: HifzItemSeed): string {
     status: seed.status ?? 'active',
     band: seed.band ?? 'new',
     stability: seed.stability ?? 0,
+    // A seed that names only the composite describes a form-only item: the axes
+    // default to (composite, null), which is what a v1 row means.
+    formStability: seed.formStability ?? seed.stability ?? 0,
+    meaningStability: seed.meaningStability ?? null,
     strength: seed.strength ?? 0,
     lastReviewedAt: seed.lastReviewedAt ?? null,
     nextReviewAt: seed.nextReviewAt ?? null,
@@ -472,9 +501,9 @@ export function insertHifzItem(h: TestHandle, seed: HifzItemSeed): string {
     errorCount: seed.errorCount ?? 0,
   };
   h.run(
-    `INSERT INTO hifz_item (id, verse_key, sequence, added_at, status, band, stability, strength,
-        last_reviewed_at, next_review_at, attempt_count, error_count)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO hifz_item (id, verse_key, sequence, added_at, status, band, stability, form_stability,
+        meaning_stability, strength, last_reviewed_at, next_review_at, attempt_count, error_count)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       item.id,
       item.verseKey,
@@ -483,6 +512,8 @@ export function insertHifzItem(h: TestHandle, seed: HifzItemSeed): string {
       item.status,
       item.band,
       item.stability,
+      item.formStability,
+      item.meaningStability,
       item.strength,
       item.lastReviewedAt,
       item.nextReviewAt,
@@ -493,46 +524,53 @@ export function insertHifzItem(h: TestHandle, seed: HifzItemSeed): string {
   return item.id;
 }
 
-export function insertHifzSegment(h: TestHandle, seed: Partial<HifzSegment> & { itemId: string; position: number; fromWord: number; toWord: number; text: string }): string {
+export function insertHifzSegment(h: TestHandle, seed: Partial<HifzSegment> & { itemId: string; verseKey: string; position: number; fromWord: number; toWord: number; text: string }): string {
   const id = seed.id ?? nextId('hifz-segment');
+  const meaning = seed.meaning ?? null;
   h.run(
-    `INSERT INTO hifz_segment (id, item_id, position, from_word, to_word, text, meaning_fa,
-        meaning_source, stability, error_count)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO hifz_segment (id, item_id, verse_key, position, from_word, to_word, text, meaning_text,
+        meaning_lang, meaning_pack, meaning_word_gloss, stability, meaning_stability, error_count)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       id,
       seed.itemId,
+      seed.verseKey,
       seed.position,
       seed.fromWord,
       seed.toWord,
       seed.text,
-      seed.meaningFa ?? null,
-      seed.meaningSource ?? null,
+      meaning?.text ?? null,
+      meaning?.lang ?? null,
+      meaning?.packId ?? null,
+      // mirrors the desktop writer: an absent meaning is not a word gloss
+      meaning?.wordGloss ? 1 : 0,
       seed.stability ?? 0,
+      seed.meaningStability ?? null,
       seed.errorCount ?? 0,
     ],
   );
   return id;
 }
 
-export function insertAnchorWord(h: TestHandle, seed: Partial<AnchorWord> & { itemId: string; wordPosition: number; text: string; role: AnchorWord['role'] }): string {
+export function insertAnchorWord(h: TestHandle, seed: Partial<AnchorWord> & { itemId: string; verseKey: string; wordPosition: number; text: string; role: AnchorWord['role'] }): string {
   const id = seed.id ?? nextId('anchor');
   h.run(
-    'INSERT INTO anchor_word (id, item_id, word_position, text, role, stability) VALUES (?,?,?,?,?,?)',
-    [id, seed.itemId, seed.wordPosition, seed.text, seed.role, seed.stability ?? 0],
+    'INSERT INTO anchor_word (id, item_id, verse_key, word_position, text, role, stability) VALUES (?,?,?,?,?,?,?)',
+    [id, seed.itemId, seed.verseKey, seed.wordPosition, seed.text, seed.role, seed.stability ?? 0],
   );
   return id;
 }
 
-export function insertHifzTransition(h: TestHandle, seed: Partial<HifzTransition> & { itemId: string; kind: HifzTransition['kind']; toWord: number }): string {
+export function insertHifzTransition(h: TestHandle, seed: Partial<HifzTransition> & { itemId: string; verseKey: string; kind: HifzTransition['kind']; toWord: number }): string {
   const id = seed.id ?? nextId('transition');
   h.run(
-    `INSERT INTO hifz_transition (id, item_id, kind, to_verse_key, to_word, success_count,
+    `INSERT INTO hifz_transition (id, item_id, verse_key, kind, to_verse_key, to_word, success_count,
         failure_count, stability, last_practiced_at)
-     VALUES (?,?,?,?,?,?,?,?,?)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?)`,
     [
       id,
       seed.itemId,
+      seed.verseKey,
       seed.kind,
       seed.toVerseKey ?? null,
       seed.toWord,
@@ -559,16 +597,18 @@ export function insertHifzAttempt(
 ): string {
   const id = seed.id ?? nextId('attempt');
   h.run(
-    `INSERT INTO hifz_attempt (id, item_id, verse_key, session_id, mode, started_at, completed_at,
+    `INSERT INTO hifz_attempt (id, item_id, verse_key, session_id, mode, dimension, started_at, completed_at,
         produced, cue, expected_word_count, correct_word_count, accuracy, errors, duration_ms,
         self_confidence, used_audio)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       id,
       seed.itemId,
       seed.verseKey,
       seed.sessionId ?? null,
       seed.mode,
+      // the engine's own rule, not the caller's claim: the mode decides the axis
+      attemptDimension({ mode: seed.mode, dimension: seed.dimension }),
       seed.startedAt,
       seed.completedAt ?? null,
       JSON.stringify(seed.produced ?? []),
@@ -605,6 +645,7 @@ export function readAttemptRows(
   itemId: string;
   verseKey: string;
   mode: string;
+  dimension: string;
   startedAt: string;
   completedAt: string | null;
   recitation: string;
@@ -615,7 +656,7 @@ export function readAttemptRows(
 }> {
   return h
     .all<Record<string, unknown>>(
-      `SELECT id, item_id, verse_key, mode, started_at, completed_at, produced,
+      `SELECT id, item_id, verse_key, mode, dimension, started_at, completed_at, produced,
           accuracy, correct_word_count, expected_word_count, errors
        FROM hifz_attempt ${itemId ? 'WHERE item_id = ?' : ''} ORDER BY started_at, rowid`,
       itemId ? [itemId] : [],
@@ -625,6 +666,7 @@ export function readAttemptRows(
       itemId: String(r['item_id']),
       verseKey: String(r['verse_key']),
       mode: String(r['mode']),
+      dimension: String(r['dimension']),
       startedAt: String(r['started_at']),
       completedAt: r['completed_at'] == null ? null : String(r['completed_at']),
       recitation: (JSON.parse(String(r['produced'])) as Array<{ text: string }>)
@@ -856,9 +898,10 @@ export function seedSyntheticHifz(h: TestHandle, at: string = EPOCH_ISO): { item
 
   // Two segments tiling the ayah, no word covered twice.
   const half = Math.max(1, Math.floor(tokens.length / 2));
-  insertHifzSegment(h, { itemId, position: 0, fromWord: 1, toWord: half, text: tokens.slice(0, half).join(' ') });
+  insertHifzSegment(h, { itemId, verseKey, position: 0, fromWord: 1, toWord: half, text: tokens.slice(0, half).join(' ') });
   insertHifzSegment(h, {
     itemId,
+    verseKey,
     position: 1,
     fromWord: half + 1,
     toWord: tokens.length,
@@ -866,11 +909,11 @@ export function seedSyntheticHifz(h: TestHandle, at: string = EPOCH_ISO): { item
     stability: 0.3,
     errorCount: 1,
   });
-  insertAnchorWord(h, { itemId, wordPosition: 1, text: tokens[0] ?? '', role: 'opening' });
-  insertAnchorWord(h, { itemId, wordPosition: tokens.length, text: tokens[tokens.length - 1] ?? '', role: 'ending' });
+  insertAnchorWord(h, { itemId, verseKey, wordPosition: 1, text: tokens[0] ?? '', role: 'opening' });
+  insertAnchorWord(h, { itemId, verseKey, wordPosition: tokens.length, text: tokens[tokens.length - 1] ?? '', role: 'ending' });
   if (tokens.length > 1) {
-    insertAnchorWord(h, { itemId, wordPosition: half + 1, text: tokens[half] ?? '', role: 'boundary' });
-    insertHifzTransition(h, { itemId, kind: 'intra', toWord: half + 1, successCount: 1, failureCount: 1, stability: 0.35, lastPracticedAt: at });
+    insertAnchorWord(h, { itemId, verseKey, wordPosition: half + 1, text: tokens[half] ?? '', role: 'boundary' });
+    insertHifzTransition(h, { itemId, verseKey, kind: 'intra', toWord: half + 1, successCount: 1, failureCount: 1, stability: 0.35, lastPracticedAt: at });
   }
 
   const produced: RecitedWord[] = tokens.map((t, i) => ({ position: i + 1, text: t }));
@@ -990,30 +1033,40 @@ export function readHifzItem(h: TestHandle, id: string): HifzItem | undefined {
 }
 
 export function readHifzSegments(h: TestHandle, itemId?: string): HifzSegment[] {
+  // `verse_key` before `position`: the numbering restarts at every ayah, so an
+  // item-wide ordering by position alone interleaves the two ayat's chunks.
   const rows = itemId
-    ? h.all<Record<string, unknown>>('SELECT * FROM hifz_segment WHERE item_id = ? ORDER BY position', [itemId])
-    : h.all<Record<string, unknown>>('SELECT * FROM hifz_segment ORDER BY item_id, position');
-  return rows.map((r) => ({
-    id: String(r['id']),
-    itemId: String(r['item_id']),
-    position: Number(r['position']),
-    fromWord: Number(r['from_word']),
-    toWord: Number(r['to_word']),
-    text: String(r['text']),
-    meaningFa: (r['meaning_fa'] as string | null) ?? null,
-    meaningSource: (r['meaning_source'] as string | null) ?? null,
-    stability: Number(r['stability']),
-    errorCount: Number(r['error_count']),
-  }));
+    ? h.all<Record<string, unknown>>('SELECT * FROM hifz_segment WHERE item_id = ? ORDER BY verse_key, position', [itemId])
+    : h.all<Record<string, unknown>>('SELECT * FROM hifz_segment ORDER BY item_id, verse_key, position');
+  return rows.map((r) => {
+    const text = (r['meaning_text'] as string | null) ?? null;
+    const lang = (r['meaning_lang'] as 'fa' | 'ar' | 'en' | null) ?? null;
+    const packId = (r['meaning_pack'] as string | null) ?? null;
+    return {
+      id: String(r['id']),
+      itemId: String(r['item_id']),
+      verseKey: String(r['verse_key']),
+      position: Number(r['position']),
+      fromWord: Number(r['from_word']),
+      toWord: Number(r['to_word']),
+      text: String(r['text']),
+      // a chunk with no pack behind it has no meaning, same as the desktop reader
+      meaning: text && lang && packId ? { text, lang, packId, wordGloss: Number(r['meaning_word_gloss']) === 1 } : null,
+      stability: Number(r['stability']),
+      meaningStability: (r['meaning_stability'] as number | null) ?? null,
+      errorCount: Number(r['error_count']),
+    };
+  });
 }
 
 export function readAnchorWords(h: TestHandle, itemId?: string): AnchorWord[] {
   const rows = itemId
-    ? h.all<Record<string, unknown>>('SELECT * FROM anchor_word WHERE item_id = ? ORDER BY word_position, role', [itemId])
-    : h.all<Record<string, unknown>>('SELECT * FROM anchor_word ORDER BY item_id, word_position');
+    ? h.all<Record<string, unknown>>('SELECT * FROM anchor_word WHERE item_id = ? ORDER BY verse_key, word_position, role', [itemId])
+    : h.all<Record<string, unknown>>('SELECT * FROM anchor_word ORDER BY item_id, verse_key, word_position');
   return rows.map((r) => ({
     id: String(r['id']),
     itemId: String(r['item_id']),
+    verseKey: String(r['verse_key']),
     wordPosition: Number(r['word_position']),
     text: String(r['text']),
     role: String(r['role']) as AnchorWord['role'],
@@ -1023,11 +1076,12 @@ export function readAnchorWords(h: TestHandle, itemId?: string): AnchorWord[] {
 
 export function readHifzTransitions(h: TestHandle, itemId?: string): HifzTransition[] {
   const rows = itemId
-    ? h.all<Record<string, unknown>>('SELECT * FROM hifz_transition WHERE item_id = ? ORDER BY kind, to_word', [itemId])
-    : h.all<Record<string, unknown>>('SELECT * FROM hifz_transition ORDER BY item_id, kind, to_word');
+    ? h.all<Record<string, unknown>>('SELECT * FROM hifz_transition WHERE item_id = ? ORDER BY verse_key, kind, to_word', [itemId])
+    : h.all<Record<string, unknown>>('SELECT * FROM hifz_transition ORDER BY item_id, verse_key, kind, to_word');
   return rows.map((r) => ({
     id: String(r['id']),
     itemId: String(r['item_id']),
+    verseKey: String(r['verse_key']),
     kind: String(r['kind']) as HifzTransition['kind'],
     toVerseKey: (r['to_verse_key'] as string | null) ?? null,
     toWord: Number(r['to_word']),
@@ -1147,6 +1201,8 @@ export function rowToHifzItem(r: Record<string, unknown>): HifzItem {
     status: String(r['status']) as HifzItem['status'],
     band: String(r['band']) as HifzItem['band'],
     stability: Number(r['stability']),
+    formStability: Number(r['form_stability']),
+    meaningStability: (r['meaning_stability'] as number | null) ?? null,
     strength: Number(r['strength']),
     lastReviewedAt: (r['last_reviewed_at'] as string | null) ?? null,
     nextReviewAt: (r['next_review_at'] as string | null) ?? null,

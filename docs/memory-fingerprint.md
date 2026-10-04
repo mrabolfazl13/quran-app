@@ -17,9 +17,55 @@ Ayah
 Code: [`core/src/hifz/segment.ts`](../core/src/hifz/segment.ts),
 [`core/src/hifz/recall.ts`](../core/src/hifz/recall.ts).
 
+## The row address is per-ayah, not per-item
+
+A fingerprint's unit is the **ayah**, and an item is allowed to span several ayat
+(`HifzItem.sequence`). Segmentation, anchors and transitions run for each ayah in
+that sequence separately, so *every number below restarts at the beginning of
+each ayah*: an item over `["112:1","112:2"]` has a segment `0`, an anchor word `1`
+and a boundary at word `2` **in each** of the two ayat.
+
+That makes the address of a stored fingerprint row three things, not two:
+
+| Table | Identity |
+|---|---|
+| `hifz_segment` | `(item_id, verse_key, position)` |
+| `anchor_word` | `(item_id, verse_key, word_position, role)` |
+| `hifz_transition` | `(item_id, verse_key, kind, to_word, to_verse_key)` |
+
+Storing them under `(item_id, position)` — which is what schema v2 did — silently
+collides the second ayah's rows onto the first ayah's, so a two-ayah item loses
+chunks of its own fingerprint. Schema v3 added the NOT NULL `verse_key` column;
+the row had always carried that ayah, just only inside its **id**.
+
+The id grammar is `{itemId}:{verseKey}:{tag}{n}` with `s`/`a`/`t` for
+segment/anchor/transition, built by `segmentId`/`anchorId`/`transitionId`
+(`core/src/hifz/segment.ts`). Item ids contain no colon, so the ayah is always the
+field between the first and second colon and can be read back out of a row that
+predates the column. The one irregular shape is an `inter` transition:
+`{itemId}:{verseKey}:tnext-{nextVerseKey}` — the ayah embedded in the id is the
+ayah the learner **leaves**, while `to_verse_key` is where they arrive.
+
+**Nobody re-implements that grammar.** `verseKeyFromFingerprintId(id)` is the
+single parser and `fingerprintVerseKey(row)` ("the row's own `verse_key`, else the
+ayah its id spells out") is the single reader. Three consumers use them:
+`core/src/backup/restore.ts` (a file exported before the column existed),
+`core/src/backup/validate.ts` (warns when it had to recover), and the desktop
+v2→v3 migration. A row whose id says nothing yields `NULL` and fails the NOT NULL
+column rather than guessing a surah — the migration throws during derivation,
+before any DDL, so nothing is half-written. v3 recovers the **ayah only**;
+positions are carried byte-for-byte.
+
+Finally: `verse_key` is TEXT, so any query that orders fingerprint rows numerically
+by it must cast both halves (`VERSE_KEY_ORDER_SQL` in `desktop/src/gateway`);
+plain text order sorts `2:10` between `2:1` and `2:2`.
+
 ## Word indexing rules (non-negotiable)
 
-- Word positions are **1-based**.
+- Word positions are **1-based**, and they are positions *inside one ayah*: every
+  ayah in an item's `sequence` numbers its own words from 1, which is why a
+  position is meaningless without its `verse_key` (see
+  [The row address is per-ayah, not per-item](#the-row-address-is-per-ayah-not-per-item)).
 - An ornament / pause mark is **not** a word. A raw whitespace token counts as a
   word only when it is the next token `tokenizeWords` keeps *and* its
   normalised form is non-empty. The engine never redefines "same word" — it
@@ -27,7 +73,10 @@ Code: [`core/src/hifz/segment.ts`](../core/src/hifz/segment.ts),
 - Segments **tile** the ayah: `assertTiling` proves position 0 starts at word 1,
   the last segment ends at `wordCount`, positions are sequential, no range is
   inverted, and adjacent segments neither gap nor overlap. A fingerprint that
-  fails tiling is a bug, not a warning.
+  fails tiling is a bug, not a warning. An ayah with `wordCount === 0` (no word
+  token survives normalisation) yields **zero** segments — never a
+  `{fromWord: 1, toWord: 0}` placeholder — because a wordless segment surfaces
+  downstream as a dead, unrecordable session step.
 - When a word-by-word pack (`AyahWord[]`) is supplied it is cross-checked
   against the text; disagreement is reported in `SegmentationResult.notes` and
   the **text** wins. The engine never edits Quran text to make data agree.
@@ -71,7 +120,9 @@ Roles: `opening` (word 1), `ending` (last word), `middle`
 (`ceil(wordCount / 2)`), `boundary` (each chosen boundary). Where two roles
 collide on one position, the positional role wins — `opening`/`ending`/`middle`
 are more specific than `boundary`, so a position never gets downgraded.
-Anchor ids are stable: `{itemId}:{verseKey}:a{wordPosition}`.
+Anchor ids are stable: `{itemId}:{verseKey}:a{wordPosition}`, and the anchor set is
+derived per ayah, so the same `wordPosition` can be an anchor of two different ayat
+of one item.
 
 ## Transitions
 

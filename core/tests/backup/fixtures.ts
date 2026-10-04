@@ -110,44 +110,51 @@ export function sampleRows(): BackupRows {
   const items: HifzItem[] = [
     {
       id: 'item-1', verseKey: vk('1:1'), sequence: ['1:1'], addedAt: '2026-09-01T09:00:00Z',
-      status: 'active', band: 'weak', stability: 0.5, strength: 0.625,
+      status: 'active', band: 'weak', stability: 0.5,
+      // the composite is the WEAKER axis, so this ayah is 0.6 memorised by sound
+      // and 0.5 by meaning
+      formStability: 0.6, meaningStability: 0.5, strength: 0.625,
       lastReviewedAt: '2026-09-20T09:00:00Z', nextReviewAt: '2026-09-29T09:00:00Z',
       attemptCount: 4, errorCount: 1,
     },
     {
       id: 'item-2', verseKey: vk('1:2'), sequence: ['1:2', '1:3'], addedAt: '2026-09-02T09:00:00Z',
-      status: 'paused', band: 'new', stability: 0, strength: 0,
+      status: 'paused', band: 'new', stability: 0,
+      // never probed for meaning: NULL, not 0
+      formStability: 0, meaningStability: null, strength: 0,
       lastReviewedAt: null, nextReviewAt: null, attemptCount: 0, errorCount: 0,
     },
   ];
   const segments: HifzSegment[] = [
     {
-      id: 'seg-1', itemId: 'item-1', position: 0, fromWord: 1, toWord: 3,
-      text: 'بِسْمِ ٱللَّهِ', meaningFa: 'به نام خدا', meaningSource: 'user',
-      stability: 0.75, errorCount: 0,
+      id: 'seg-1', itemId: 'item-1', verseKey: vk('1:1'), position: 0, fromWord: 1, toWord: 3,
+      text: 'بِسْمِ ٱللَّهِ',
+      meaning: { text: 'in the name of God', lang: 'en', packId: 'word-data', wordGloss: true },
+      stability: 0.75, meaningStability: 0.4, errorCount: 0,
     },
     {
-      id: 'seg-2', itemId: 'item-1', position: 1, fromWord: 4, toWord: 5,
-      text: 'ٱلرَّحْمَٰنِ ٱلرَّحِيمِ', meaningFa: null, meaningSource: null,
-      stability: 0.25, errorCount: 1,
+      id: 'seg-2', itemId: 'item-1', verseKey: vk('1:1'), position: 1, fromWord: 4, toWord: 5,
+      text: 'ٱلرَّحْمَٰنِ ٱلرَّحِيمِ', meaning: null,
+      stability: 0.25, meaningStability: null, errorCount: 1,
     },
   ];
   const anchors: AnchorWord[] = [
-    { id: 'anchor-1', itemId: 'item-1', wordPosition: 1, text: 'بِسْمِ', role: 'opening', stability: 0.9 },
+    { id: 'anchor-1', itemId: 'item-1', verseKey: vk('1:1'), wordPosition: 1, text: 'بِسْمِ', role: 'opening', stability: 0.9 },
   ];
   const transitions: HifzTransition[] = [
     {
-      id: 'tr-1', itemId: 'item-1', kind: 'intra', toVerseKey: null, toWord: 4,
+      id: 'tr-1', itemId: 'item-1', verseKey: vk('1:1'), kind: 'intra', toVerseKey: null, toWord: 4,
       successCount: 3, failureCount: 1, stability: 0.6, lastPracticedAt: '2026-09-20T09:05:00Z',
     },
     {
-      id: 'tr-2', itemId: 'item-2', kind: 'inter', toVerseKey: '1:3', toWord: 1,
+      id: 'tr-2', itemId: 'item-2', verseKey: vk('1:2'), kind: 'inter', toVerseKey: '1:3', toWord: 1,
       successCount: 0, failureCount: 0, stability: 0, lastPracticedAt: null,
     },
   ];
   const attempts: RecallAttempt[] = [
     {
       id: 'att-1', itemId: 'item-1', verseKey: '1:1', sessionId: 's-1', mode: 'full-ayah',
+      dimension: 'form',
       startedAt: '2026-09-20T09:00:00Z', completedAt: '2026-09-20T09:00:40Z',
       produced: [{ position: 1, text: 'بِسْمِ' }, { position: 2, text: 'ٱللَّهِ' }],
       cue: { kind: 'anchor', text: 'بِسْمِ' },
@@ -162,10 +169,22 @@ export function sampleRows(): BackupRows {
     },
     {
       id: 'att-2', itemId: 'item-1', verseKey: '1:1', sessionId: null, mode: 'segment',
+      dimension: 'form',
       startedAt: '2026-09-21T09:00:00Z', completedAt: null,
       produced: [{ position: 1, text: 'بِسْمِ' }], cue: null,
       expectedWordCount: 3, correctWordCount: 3, accuracy: 1,
       errors: [], durationMs: null, selfConfidence: null, usedAudio: true,
+    },
+    {
+      // A meaning drill must survive the round trip as a meaning drill: the
+      // dimension is stored, and so is the pack the prompt was read from.
+      id: 'att-3', itemId: 'item-1', verseKey: '1:1', sessionId: null, mode: 'meaning-to-arabic',
+      dimension: 'meaning',
+      startedAt: '2026-09-22T09:00:00Z', completedAt: '2026-09-22T09:00:20Z',
+      produced: [{ position: 1, text: 'بِسْمِ' }, { position: 2, text: 'ٱللَّهِ' }, { position: 3, text: 'ٱلرَّحْمَٰنِ' }],
+      cue: { kind: 'meaning-gloss', text: 'in the name of God', lang: 'en', packId: 'word-data' },
+      expectedWordCount: 3, correctWordCount: 3, accuracy: 1,
+      errors: [], durationMs: 20000, selfConfidence: 4, usedAudio: false,
     },
   ];
   const groups: ConfusionGroup[] = [
@@ -183,8 +202,8 @@ export function sampleRows(): BackupRows {
       ],
       report: {
         overallRecall: 0.8, newItemsLearned: 0, reviewsCompleted: 1,
-        weakSegments: [{ itemId: 'item-1', segmentPosition: 1, accuracy: 0.5 }],
-        weakTransitions: [{ itemId: 'item-1', toWord: 4, stability: 0.6 }],
+        weakSegments: [{ itemId: 'item-1', verseKey: '1:1', segmentPosition: 1, accuracy: 0.5 }],
+        weakTransitions: [{ itemId: 'item-1', verseKey: '1:1', toWord: 4, stability: 0.6 }],
         confusedVerseKeys: ['1:1'],
         repeatedErrors: [{ kind: 'substitution', count: 1 }],
         recommendedNextReviewAt: '2026-09-23T09:00:00Z',
@@ -276,6 +295,21 @@ export function reseal(env: BackupEnvelope): BackupEnvelope {
 // -------------------------------------------------------- DB → rows reader
 
 /**
+ * The four `meaning_*` columns as one contract object, or null.
+ *
+ * Same rule the desktop reader applies: a chunk whose text no licensed pack is
+ * named for has no meaning, so it is reported as null rather than as an object
+ * with holes.
+ */
+function readSegmentMeaning(r: Record<string, unknown>): HifzSegment['meaning'] {
+  const text = r.meaning_text == null ? null : String(r.meaning_text);
+  const lang = r.meaning_lang == null ? null : String(r.meaning_lang);
+  const packId = r.meaning_pack == null ? null : String(r.meaning_pack);
+  if (!text || text.trim() === '' || !lang || !packId) return null;
+  return { text, lang: lang as 'fa' | 'ar' | 'en', packId, wordGloss: Number(r.meaning_word_gloss) === 1 };
+}
+
+/**
  * Read every user table back into `BackupUserData` shape. This is the exact
  * code the desktop layer will need for export; it deliberately uses no
  * knowledge from the backup module beyond column mapping.
@@ -329,6 +363,8 @@ export function readUserRows(db: DatabaseSync): BackupRows {
       status: r.status,
       band: r.band,
       stability: num(r, 'stability'),
+      formStability: num(r, 'form_stability'),
+      meaningStability: r.meaning_stability == null ? null : num(r, 'meaning_stability'),
       strength: num(r, 'strength'),
       lastReviewedAt: r.last_reviewed_at == null ? null : String(r.last_reviewed_at),
       nextReviewAt: r.next_review_at == null ? null : String(r.next_review_at),
@@ -338,18 +374,20 @@ export function readUserRows(db: DatabaseSync): BackupRows {
     hifzSegments: all('SELECT * FROM hifz_segment ORDER BY id').map((r) => ({
       id: s(r, 'id'),
       itemId: s(r, 'item_id'),
+      verseKey: vk(String(r.verse_key)),
       position: num(r, 'position'),
       fromWord: num(r, 'from_word'),
       toWord: num(r, 'to_word'),
       text: s(r, 'text'),
-      meaningFa: r.meaning_fa == null ? null : String(r.meaning_fa),
-      meaningSource: r.meaning_source == null ? null : String(r.meaning_source),
+      meaning: readSegmentMeaning(r),
       stability: num(r, 'stability'),
+      meaningStability: r.meaning_stability == null ? null : num(r, 'meaning_stability'),
       errorCount: num(r, 'error_count'),
     })),
     anchorWords: all('SELECT * FROM anchor_word ORDER BY id').map((r) => ({
       id: s(r, 'id'),
       itemId: s(r, 'item_id'),
+      verseKey: vk(String(r.verse_key)),
       wordPosition: num(r, 'word_position'),
       text: s(r, 'text'),
       role: r.role,
@@ -358,6 +396,7 @@ export function readUserRows(db: DatabaseSync): BackupRows {
     hifzTransitions: all('SELECT * FROM hifz_transition ORDER BY id').map((r) => ({
       id: s(r, 'id'),
       itemId: s(r, 'item_id'),
+      verseKey: vk(String(r.verse_key)),
       kind: r.kind,
       toVerseKey: r.to_verse_key == null ? null : String(r.to_verse_key),
       toWord: num(r, 'to_word'),
@@ -372,6 +411,7 @@ export function readUserRows(db: DatabaseSync): BackupRows {
       verseKey: vk(String(r.verse_key)),
       sessionId: r.session_id == null ? null : String(r.session_id),
       mode: r.mode,
+      dimension: s(r, 'dimension'),
       startedAt: s(r, 'started_at'),
       completedAt: r.completed_at == null ? null : String(r.completed_at),
       produced: JSON.parse(String(r.produced)),
@@ -425,8 +465,14 @@ export function readUserRows(db: DatabaseSync): BackupRows {
       body: s(r, 'body'),
       writtenAt: s(r, 'written_at'),
     })),
-    dailyPlans: all('SELECT payload FROM daily_plan ORDER BY date').map((r) =>
-      JSON.parse(String(r.payload)),
-    ),
+    dailyPlans: all('SELECT date, payload, generated_at FROM daily_plan ORDER BY date').map((r) => ({
+      // A file carries the decoded plan plus the timestamp the table keeps in
+      // its own column: `payload` alone would lose `generatedAt`, and reading
+      // only the payload is how an export silently dropped a field restore had
+      // written elsewhere. Merge the columns, as the shipped gateway does.
+      ...(JSON.parse(String(r.payload)) as Record<string, unknown>),
+      date: String(r.date),
+      generatedAt: String(r.generated_at),
+    })),
   };
 }

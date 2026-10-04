@@ -18,6 +18,9 @@
  */
 
 import type { BackupEnvelope, BackupUserData } from '../contracts/backup';
+import type { RecallDimension, RecallMode } from '../contracts/hifz';
+import { fingerprintVerseKey } from '../hifz/segment';
+import { attemptDimension } from '../hifz/stability';
 import { canonicalJsonStringify } from './canonical-json';
 import { serializeEnvelope } from './export';
 import {
@@ -49,6 +52,38 @@ interface TableOp {
   dataKey: keyof BackupUserData;
   columns: string[];
   rows: (data: BackupUserData, settings: Record<string, SettingPrimitive>, exportedAt: string) => SqlValue[][];
+}
+
+/**
+ * The two memory axes of an `hifz_item`, read from an envelope that may predate
+ * them.
+ *
+ * A file exported before the dual-axis contract carries one composite number
+ * and no meaning axis at all. That single figure was measured under form-only
+ * drills, so it *is* the form stability, and the meaning axis is NULL: never
+ * probed, not probed-and-failed. Writing 0 there would invent a failure, drop
+ * every restored ayah to band `new` on the next recompute, and queue a meaning
+ * drill the learner was never offered — the same reasoning that made the DB
+ * migration in `desktop/src/db/schema.ts` write `NULL`.
+ */
+function itemAxes(r: Record<string, unknown>): [number, number, number | null] {
+  const stability = r.stability as number;
+  const form = typeof r.formStability === 'number' ? r.formStability : stability;
+  const meaning = typeof r.meaningStability === 'number' ? r.meaningStability : null;
+  return [stability, form, meaning];
+}
+
+/**
+ * The meaning of a stored segment as the `hifz_segment` columns want it.
+ *
+ * `meaning` is the contract field and is null whenever no licensed pack covers
+ * the chunk; the four columns then all read NULL/0, so a restore cannot make a
+ * gloss appear that the backup never carried.
+ */
+function segmentMeaning(r: Record<string, unknown>): [string | null, string | null, string | null, 0 | 1] {
+  const m = r.meaning as { text: string; lang: string; packId: string; wordGloss: boolean } | null;
+  if (!m) return [null, null, null, 0];
+  return [m.text, m.lang, m.packId, m.wordGloss ? 1 : 0];
 }
 
 /** Physical write order: parents before children (FK-safe). Never content. */
@@ -109,53 +144,75 @@ export const RESTORE_OPS: readonly TableOp[] = [
     dataKey: 'hifzItems',
     columns: [
       'id', 'verse_key', 'sequence', 'added_at', 'status', 'band', 'stability',
-      'strength', 'last_reviewed_at', 'next_review_at', 'attempt_count', 'error_count',
+      'form_stability', 'meaning_stability', 'strength', 'last_reviewed_at',
+      'next_review_at', 'attempt_count', 'error_count',
     ],
     rows: (d) =>
-      (d.hifzItems as Array<Record<string, unknown>>).map((r) => [
-        r.id as string,
-        r.verseKey as string,
-        j(r.sequence),
-        r.addedAt as string,
-        r.status as string,
-        r.band as string,
-        r.stability as number,
-        r.strength as number,
-        (r.lastReviewedAt as string) ?? null,
-        (r.nextReviewAt as string) ?? null,
-        r.attemptCount as number,
-        r.errorCount as number,
-      ]),
+      (d.hifzItems as Array<Record<string, unknown>>).map((r) => {
+        const [stability, formStability, meaningStability] = itemAxes(r);
+        return [
+          r.id as string,
+          r.verseKey as string,
+          j(r.sequence),
+          r.addedAt as string,
+          r.status as string,
+          r.band as string,
+          stability,
+          formStability,
+          meaningStability,
+          r.strength as number,
+          (r.lastReviewedAt as string) ?? null,
+          (r.nextReviewAt as string) ?? null,
+          r.attemptCount as number,
+          r.errorCount as number,
+        ];
+      }),
   },
   {
+    // `verse_key` is the row's own field, or the ayah its `id` already spells
+    // out (`fingerprintVerseKey`). Position numbering restarts for every ayah an
+    // item spans, so without it a chunk of the second ayah is indistinguishable
+    // from the same-indexed chunk of the first. A file exported before the column
+    // existed still always carried the ayah in the id, so it is recovered, not
+    // defaulted; a row whose id says nothing writes NULL and fails the NOT NULL
+    // column rather than guessing a surah. `validate.ts` warns on the recovery.
     table: 'hifz_segment',
     dataKey: 'hifzSegments',
     columns: [
-      'id', 'item_id', 'position', 'from_word', 'to_word', 'text',
-      'meaning_fa', 'meaning_source', 'stability', 'error_count',
+      'id', 'item_id', 'verse_key', 'position', 'from_word', 'to_word', 'text',
+      'meaning_text', 'meaning_lang', 'meaning_pack', 'meaning_word_gloss',
+      'stability', 'meaning_stability', 'error_count',
     ],
     rows: (d) =>
-      (d.hifzSegments as Array<Record<string, unknown>>).map((r) => [
-        r.id as string,
-        r.itemId as string,
-        r.position as number,
-        r.fromWord as number,
-        r.toWord as number,
-        r.text as string,
-        (r.meaningFa as string) ?? null,
-        (r.meaningSource as string) ?? null,
-        r.stability as number,
-        r.errorCount as number,
-      ]),
+      (d.hifzSegments as Array<Record<string, unknown>>).map((r) => {
+        const [meaningText, meaningLang, meaningPack, wordGloss] = segmentMeaning(r);
+        return [
+          r.id as string,
+          r.itemId as string,
+          fingerprintVerseKey(r),
+          r.position as number,
+          r.fromWord as number,
+          r.toWord as number,
+          r.text as string,
+          meaningText,
+          meaningLang,
+          meaningPack,
+          wordGloss,
+          r.stability as number,
+          typeof r.meaningStability === 'number' ? r.meaningStability : null,
+          r.errorCount as number,
+        ];
+      }),
   },
   {
     table: 'anchor_word',
     dataKey: 'anchorWords',
-    columns: ['id', 'item_id', 'word_position', 'text', 'role', 'stability'],
+    columns: ['id', 'item_id', 'verse_key', 'word_position', 'text', 'role', 'stability'],
     rows: (d) =>
       (d.anchorWords as Array<Record<string, unknown>>).map((r) => [
         r.id as string,
         r.itemId as string,
+        fingerprintVerseKey(r),
         r.wordPosition as number,
         r.text as string,
         r.role as string,
@@ -166,13 +223,14 @@ export const RESTORE_OPS: readonly TableOp[] = [
     table: 'hifz_transition',
     dataKey: 'hifzTransitions',
     columns: [
-      'id', 'item_id', 'kind', 'to_verse_key', 'to_word', 'success_count',
-      'failure_count', 'stability', 'last_practiced_at',
+      'id', 'item_id', 'verse_key', 'kind', 'to_verse_key', 'to_word',
+      'success_count', 'failure_count', 'stability', 'last_practiced_at',
     ],
     rows: (d) =>
       (d.hifzTransitions as Array<Record<string, unknown>>).map((r) => [
         r.id as string,
         r.itemId as string,
+        fingerprintVerseKey(r),
         r.kind as string,
         (r.toVerseKey as string) ?? null,
         r.toWord as number,
@@ -186,7 +244,7 @@ export const RESTORE_OPS: readonly TableOp[] = [
     table: 'hifz_attempt',
     dataKey: 'recallAttempts',
     columns: [
-      'id', 'item_id', 'verse_key', 'session_id', 'mode', 'started_at',
+      'id', 'item_id', 'verse_key', 'session_id', 'mode', 'dimension', 'started_at',
       'completed_at', 'produced', 'cue', 'expected_word_count',
       'correct_word_count', 'accuracy', 'errors', 'duration_ms',
       'self_confidence', 'used_audio',
@@ -198,6 +256,11 @@ export const RESTORE_OPS: readonly TableOp[] = [
         r.verseKey as string,
         (r.sessionId as string) ?? null,
         r.mode as string,
+        // `dimension` is NOT NULL, and an envelope written before the column
+        // existed has no value to supply. `attemptDimension` re-derives it from
+        // the mode rather than assuming: a restored meaning drill must not come
+        // back labelled as verbatim recall.
+        attemptDimension(r as { mode: RecallMode; dimension?: RecallDimension }),
         r.startedAt as string,
         (r.completedAt as string) ?? null,
         j(r.produced),
@@ -285,11 +348,14 @@ export const RESTORE_OPS: readonly TableOp[] = [
     dataKey: 'dailyPlans',
     columns: ['date', 'payload', 'generated_at'],
     rows: (d) =>
-      (d.dailyPlans as Array<Record<string, unknown>>).map((r) => [
-        r.date as string,
-        j(r),
-        r.generatedAt as string,
-      ]),
+      (d.dailyPlans as Array<Record<string, unknown>>).map((r) => {
+        // `date` stays inside the payload because it is part of `DailyPlan`
+        // itself; `generatedAt` is only a column, so taking it out keeps the
+        // stored bytes equal to what the app wrote before the export — which is
+        // what `export → restore → export` compares byte for byte.
+        const { generatedAt, ...plan } = r;
+        return [r.date as string, j(plan), generatedAt as string];
+      }),
   },
   {
     table: 'reflection',

@@ -85,6 +85,11 @@ both the raw factor and its weighted contribution (`factors[key]`,
 largest contributions — so the UI answers *"why is this ayah due?"* from stored
 history instead of inventing a sentence.
 
+The two fingerprint factors read the item's segments and transitions, which are
+stored per **ayah**: a two-ayah item has its own chunk 0 in each ayah, and the
+gateway keys them by `(item_id, verse_key, position)` (schema v3 — see
+[data-model.md](data-model.md#the-fingerprint-tables-are-keyed-by-ayah-not-just-by-item)).
+
 ### Confusion-group lift
 
 A group boosts its strongest member by `min(1, priority + 0.02 × triggers)`

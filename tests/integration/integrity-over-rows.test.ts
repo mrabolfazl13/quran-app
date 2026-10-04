@@ -34,6 +34,23 @@ import { fixtureAyahs, fixtureChapters } from '../helpers/corpus';
 /** Hook budget: the full mushaf is 6 236 ayahs plus 12 472 translation rows. */
 const BUILD_TIMEOUT = 240_000;
 
+/**
+ * Wall-clock allowance for this file's whole-mushaf suite.
+ *
+ * Measured on an otherwise idle machine (`vitest run` over this file plus
+ * `tauri-gateway-statement-queue.test.ts`) these bodies take 2–914 ms. The lane
+ * runs 16 files of real SQLite against one 8 GB machine at once, so a busy run
+ * can put one of these bodies behind every other file's I/O and the default 5 s
+ * budget expires on a test that is merely waiting, not slow. The failure it
+ * produces (`Test timed out in 5000ms` on a row-integrity assertion) reads as a
+ * code defect and sends the next operator to look at `verify.ts`.
+ *
+ * This is a scheduler allowance, not a performance claim: no test here asserts a
+ * duration, and a genuine hang still fails — 60 s after it started. The 31-ayah
+ * suite below deliberately keeps the default budget; it reads 31 rows.
+ */
+const MUSHAF_TIMEOUT = 60_000;
+
 function subjectsOf(report: { issues: { code: string; subject: string }[] }, code: string): string[] {
   return report.issues.filter((i) => i.code === code).map((i) => i.subject);
 }
@@ -48,7 +65,7 @@ function capture(fn: () => void): unknown {
   }
 }
 
-describe('integrity over stored rows: the whole mushaf', () => {
+describe('integrity over stored rows: the whole mushaf', { timeout: MUSHAF_TIMEOUT }, () => {
   let h: TestHandle;
 
   beforeAll(() => {

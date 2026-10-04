@@ -27,9 +27,9 @@ Exported logical tables — exactly the 14 arrays plus the settings record of
 | `readingPositions` | `reading_position` (`id` may be derived: `pos:<verseKey>`) |
 | `readingHistory` | `reading_history` (`id` may be derived: `hist:<verseKey>:<readAt>`) |
 | `hifzItems` | `hifz_item` (`sequence` JSON array) |
-| `hifzSegments` | `hifz_segment` |
-| `anchorWords` | `anchor_word` |
-| `hifzTransitions` | `hifz_transition` |
+| `hifzSegments` | `hifz_segment` (`verseKey` required — a `position` only means something inside an ayah) |
+| `anchorWords` | `anchor_word` (`verseKey` required — `wordPosition` restarts per ayah) |
+| `hifzTransitions` | `hifz_transition` (`verseKey` required — the ayah the learner leaves; `toVerseKey` is where they arrive) |
 | `recallAttempts` | `hifz_attempt` (`produced`, `cue`, `errors` canonical-JSON columns) |
 | `confusionGroups` | `confusion_group` + `confusion_group_item` (flattened into the group's `verseKeys` array; array order = `position`) |
 | `sessions` | `hifz_session` (`steps`, `report` canonical JSON) |
@@ -109,6 +109,14 @@ input; every hostile or corrupt file produces a failed `InspectionResult`**
   compile-checked against `contracts/hifz.ts` so it cannot drift silently);
 - any `verseKey` not matching `^\d{1,3}:\d{1,4}$` with chapter 1..114
   (SQL-injection-shaped or Persian-digit keys fail here);
+- a fingerprint row (`hifzSegments`/`anchorWords`/`hifzTransitions`) with **no
+  ayah at all**. Its `position`, `wordPosition` or `toWord` restarts for every
+  ayah an item spans, so a row without the ayah it numbers inside cannot be
+  placed. Files exported before the field existed are *not* corrupt: their row
+  ids always carried the ayah (`{itemId}:{verseKey}:{tag}{n}`), so
+  `fingerprintVerseKey(row)` recovers it and the row restores with a warning.
+  A row whose id says nothing is reported as `bad-value` corruption — restore
+  then fails the NOT NULL column rather than guessing a surah;
 - duplicate primary ids — within a table **and** across tables;
 - dangling references: `hifzSegments`/`anchorWords`/`hifzTransitions`/
   `recallAttempts` whose `itemId` names no `hifzItems` row in the file. These
@@ -130,6 +138,12 @@ input; every hostile or corrupt file produces a failed `InspectionResult`**
   a hard refusal at both validation (`future-schema-version`) and migration.
 - To extend: add `migrations/vN-to-vN+1.ts`, register it, and have the
   orchestrator bump `BACKUP_SCHEMA_VERSION` in the same round.
+- **The two version numbers are different lines.** SQLite's
+  `SCHEMA_VERSION` (`desktop/src/db/schema.ts`) went 2 → 3 when the fingerprint
+  tables grew their `verse_key` column; `BACKUP_SCHEMA_VERSION` stayed 1. A
+  version-1 file was always *semantically* carrying the ayah — inside each row's
+  id — so the exporter needed no new field and no old file became unreadable.
+  A schema migration in the app is not a format change in the file.
 
 ## Restore (`planRestore` / `applyRestore`)
 

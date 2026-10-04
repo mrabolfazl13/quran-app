@@ -60,10 +60,12 @@ describe('applyRestore — real node:sqlite database', () => {
     const env = sampleEnvelope();
     const { db, run } = freshApply(env);
     const result = await run();
-    expect(result.ok).toBe(true);
+    // the failure object is the whole diagnosis, so print it instead of a bare
+    // `false to be true` that leaves the next reader guessing
+    expect(result.ok, JSON.stringify(result)).toBe(true);
     if (!result.ok) return;
     expect(result.verified.note).toBe(1);
-    expect(result.verified.hifz_attempt).toBe(2);
+    expect(result.verified.hifz_attempt).toBe(3);
     expect(result.verified.confusion_group_item).toBe(2);
     expect(result.verified.journey_progress).toBe(2);
     for (const table of USER_TABLES) {
@@ -81,6 +83,100 @@ describe('applyRestore — real node:sqlite database', () => {
     const rows2 = readUserRows(db);
     const env2 = buildEnvelope(rows2, META).envelope;
     expect(serializeEnvelope(env2)).toBe(serializeEnvelope(env1));
+    db.close();
+  });
+
+  it('restores both memory axes, a licensed segment meaning, and the attempt dimension', async () => {
+    const { db, run } = freshApply(sampleEnvelope());
+    expect((await run()).ok).toBe(true);
+
+    const columns = (sql: string) => db.prepare(sql).all() as Array<Record<string, unknown>>;
+    // the composite is the weaker axis, and both numbers travel with it
+    expect(columns(`SELECT stability, form_stability, meaning_stability FROM hifz_item WHERE id = 'item-1'`)).toEqual([
+      { stability: 0.5, form_stability: 0.6, meaning_stability: 0.5 },
+    ]);
+    expect(
+      columns(`SELECT meaning_stability FROM hifz_item WHERE id = 'item-2'`)[0]!.meaning_stability,
+      'an item nobody ever probed for meaning must not come back as probed-and-failed',
+    ).toBeNull();
+
+    expect(
+      columns(
+        `SELECT meaning_text, meaning_lang, meaning_pack, meaning_word_gloss, meaning_stability
+         FROM hifz_segment WHERE id = 'seg-1'`,
+      ),
+    ).toEqual([
+      {
+        meaning_text: 'in the name of God',
+        meaning_lang: 'en',
+        meaning_pack: 'word-data',
+        meaning_word_gloss: 1,
+        meaning_stability: 0.4,
+      },
+    ]);
+    // a chunk no pack covers keeps all four columns empty — restore invents nothing
+    expect(
+      columns(
+        `SELECT meaning_text, meaning_lang, meaning_pack, meaning_word_gloss, meaning_stability
+         FROM hifz_segment WHERE id = 'seg-2'`,
+      ),
+    ).toEqual([
+      { meaning_text: null, meaning_lang: null, meaning_pack: null, meaning_word_gloss: 0, meaning_stability: null },
+    ]);
+
+    expect(columns(`SELECT id, mode, dimension FROM hifz_attempt ORDER BY id`)).toEqual([
+      { id: 'att-1', mode: 'full-ayah', dimension: 'form' },
+      { id: 'att-2', mode: 'segment', dimension: 'form' },
+      { id: 'att-3', mode: 'meaning-to-arabic', dimension: 'meaning' },
+    ]);
+    const cue = columns(`SELECT cue FROM hifz_attempt WHERE id = 'att-3'`)[0]!.cue;
+    expect(JSON.parse(String(cue))).toEqual({
+      kind: 'meaning-gloss',
+      text: 'in the name of God',
+      lang: 'en',
+      packId: 'word-data',
+    });
+    db.close();
+  });
+
+  it('a file written before the dual-axis contract still restores: form = composite, meaning = NULL, axis from the mode', async () => {
+    const env = sampleEnvelope();
+    for (const rows of [env.data.hifzItems, env.data.hifzSegments, env.data.recallAttempts] as Array<
+      Array<Record<string, unknown>>
+    >) {
+      for (const r of rows) {
+        delete r.formStability;
+        delete r.meaningStability;
+        delete r.meaning;
+        delete r.dimension;
+      }
+    }
+    const { db, run } = freshApply(reseal(env));
+    const result = await run();
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+
+    const items = db.prepare(
+      'SELECT id, stability, form_stability, meaning_stability FROM hifz_item ORDER BY id',
+    ).all() as Array<Record<string, unknown>>;
+    expect(items).toEqual([
+      { id: 'item-1', stability: 0.5, form_stability: 0.5, meaning_stability: null },
+      { id: 'item-2', stability: 0, form_stability: 0, meaning_stability: null },
+    ]);
+    // `dimension` is NOT NULL, so this is the row the restore had to fill in —
+    // from the mode, which is why a meaning drill is not relabelled as recall.
+    const attempts = db.prepare('SELECT id, dimension FROM hifz_attempt ORDER BY id').all();
+    expect(attempts).toEqual([
+      { id: 'att-1', dimension: 'form' },
+      { id: 'att-2', dimension: 'form' },
+      { id: 'att-3', dimension: 'meaning' },
+    ]);
+    const segments = db
+      .prepare('SELECT meaning_text, meaning_pack, meaning_word_gloss FROM hifz_segment ORDER BY id')
+      .all() as Array<Record<string, unknown>>;
+    expect(segments.map((s) => [s.meaning_text, s.meaning_pack, s.meaning_word_gloss])).toEqual([
+      [null, null, 0],
+      [null, null, 0],
+    ]);
     db.close();
   });
 
@@ -177,7 +273,7 @@ describe('applyRestore — real node:sqlite database', () => {
     const dropped = await applyRestore(driver(makeDb()), sealed, { dropOrphans: true });
     expect(dropped.ok).toBe(true);
     if (dropped.ok) {
-      expect(dropped.verified.hifz_attempt).toBe(1);
+      expect(dropped.verified.hifz_attempt).toBe(2);
       expect(dropped.droppedOrphans).toHaveLength(1);
       expect(dropped.droppedOrphans[0]!.missing).toContain('ghost');
     }

@@ -15,7 +15,8 @@ describe('buildEnvelope', () => {
     expect(Object.keys(envelope.counts).sort()).toEqual([...DATA_KEYS].sort());
     expect(envelope.counts.notes).toBe(1);
     expect(envelope.counts.settings).toBe(7);
-    expect(envelope.counts.recallAttempts).toBe(2);
+    // two form drills and one meaning drill
+    expect(envelope.counts.recallAttempts).toBe(3);
     expect(envelope.checksum).toMatch(/^[0-9a-f]{64}$/);
     expect(envelope.checksum).toBe(computeDataChecksum(envelope.data));
     const fresh = inspectEnvelope(serializeEnvelope(envelope));

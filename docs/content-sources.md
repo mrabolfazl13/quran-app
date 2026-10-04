@@ -96,19 +96,88 @@ type stripping, zero runtime dependencies).
 
 ## Packs produced (current run)
 
+Eight packs, all of them `license.status = "unresolved"` (see the licence
+section). No audio pack exists — see `docs/audio-licenses.md`.
+
 | Pack | Kind | Records | Notes |
 | --- | --- | ---: | --- |
 | `quran-core` | quran-core | 6 350 | 114 `_t:"surah"` + 6 236 `_t:"ayah"` lines; divisions inline |
-| `word-data` | word-data | 83 665 | incl. 6 236 `isEndOfAyahMark:true` lines; `position` = contract rule (word tokens 1..N; end marks at N+1) |
+| `word-data` | word-data | 83 665 | **77 429 word tokens + 6 236 ayah-end marks** (`isEndOfAyahMark:true`); `position` = contract rule (word tokens 1..N; end marks at N+1). Quote the row count as *rows*, never as "83 665 words" |
 | `tr-en-abdulhaleem` | translation | 6 236 | alignment proven |
 | `tr-fa-islamhouse` | translation | 6 236 | alignment proven |
 | `tr-fa-kaldari` | translation | 6 236 | alignment proven |
-| `tafsir-ar-muyassar` | tafsir | 1 013 | grouped passages |
-| `tafsir-en-ibnkathir` | tafsir | 300 | grouped passages, 762 empty rows dropped |
+| `tafsir-ar-muyassar` | tafsir | 1 013 | grouped passages; 270 of them carry provider HTML |
+| `tafsir-en-ibnkathir` | tafsir | 300 | grouped passages, 762 empty provider rows dropped; all 300 carry provider HTML; **covers 113 chapters — surah 105 (Al-Fil) has no passage at all** |
+| `mutashabihat-ar` | linguistic | 1 732 | **not fetched — computed at build time** by `core/src/mutashabihat` over the `quran-core` payload this run shipped (see below) |
+
+### `mutashabihat-ar` — the one machine-made pack
+
+It is the only shipped pack with no provider row behind it, so it labels itself
+that way in the artefact rather than relying on a comment here:
+
+* `source` is the literal string `computed at build time from
+  content/quran-core/payload.jsonl` — not an API URL.
+* `title` reads "…computed similar-ayah candidates (machine-derived from the
+  Uthmani text; not a scholarly analysis)".
+* a `derived` block states `computed: true`, `producedBy:
+  algorithm:mutashabihat-blocking@v1`, the algorithm/module/tokenisation, every
+  engine parameter it used, the score definition, the determinism rules, the
+  sha256 of the exact core payload the pairs were computed over, and an explicit
+  `not:` list ("scholarly mutashābahāt analysis", "asbab al-nuzul", "a religious
+  or legal claim", "model or human output").
+* `license.status` inherits `quran-core`'s `unresolved` — a derived work may not
+  launder the licence of its input.
+* `attribution.creditLine` says the rows are machine-computed candidates.
+
+No model of any kind produced these rows: they are deterministic algorithm
+output over the bundled text, which is why they are labelled *computed* and not
+`AI GENERATED`. Nothing else in `content/` is machine-made; `docs/local-ai.md`
+records the rule that any model output would have to carry the `AI GENERATED`
+label and stay out of canonical panes. The gate re-derives all 1 732 pairs with
+the real engine function (`tools/content/src/validate.ts`, check 9) and
+`tests/integration/content-pack-manifests.test.ts` re-derives them again
+independently of `tools/content`.
 
 `content/index.json` is the `PackIndex` (schemaVersion 1). Every `pack.json`
 is a `ContentPackManifest` with sha256 over the payload, real byte length and
 real record count — all re-verified by the post-build validation pass.
+`pack.json` and the matching `index.json` entry must be the same manifest:
+`validatePacks()` compares them byte-for-byte, because the importer reads the
+index while a human reviewer reads the per-pack file.
+
+## Pack-level audit evidence (independent recomputation, not the pipeline's word)
+
+Recomputed with `node:crypto` over the bytes on disk, then asserted as
+`tests/integration/content-pack-manifests.test.ts`:
+
+| Pack | sha256 (first 12) recomputed = manifest | rows counted = recordCount | licence / attribution stated |
+| --- | --- | --- | --- |
+| `quran-core` | `49cb3b10f7e7` ✔ | 6 350 ✔ | unresolved, notes + credit line present |
+| `word-data` | `8758734b3f42` ✔ | 83 665 ✔ | unresolved, present |
+| `tr-en-abdulhaleem` | `133c6db7ab92` ✔ | 6 236 ✔ | unresolved, present |
+| `tr-fa-islamhouse` | `b958c471e3a6` ✔ | 6 236 ✔ | unresolved, present |
+| `tr-fa-kaldari` | `d0acc845cdc1` ✔ | 6 236 ✔ | unresolved, present |
+| `tafsir-ar-muyassar` | `8527ea69b585` ✔ | 1 013 ✔ | unresolved, present |
+| `tafsir-en-ibnkathir` | `e0188ed27840` ✔ | 300 ✔ | unresolved, present |
+| `mutashabihat-ar` | `415e7a1a130c` ✔ | 1 732 ✔ | unresolved (inherited), self-labelled computed |
+
+Provenance of the inputs: 500 JSON captures under `data/raw/quran-com`, 500
+entries in `data/raw/manifest.json`, 0 bytes whose sha256/length disagree with
+that manifest, and every recorded URL on `https://api.quran.com`. The 36
+translation-alignment proofs (3 resources × 12 sample chapters) are on disk, so
+`content:validate` runs fully offline — no fetch was needed for this audit and
+`content:fetch` was not run.
+
+The validator was also proven able to **fail**, on throwaway copies under
+`%TEMP%` (the shipped `content/` was never touched): altering one dammah in
+55:13, truncating one word-data row, inventing a mushaf page number, raising a
+stored pair score, appending to a tafsir passage, and — the adversarial case —
+editing 2:255 **and** recomputing `checksum`/`payloadBytes`/`recordCount` so the
+manifest is self-consistent. Every one of those exited non-zero with a
+`PACK CORRUPTION` line, because the pack text is compared to the provider
+capture rather than to its own metadata. Tampering with the raw capture itself is
+caught by the provenance hash plus the divisions-vs-bulk comparison.
+
 
 ## Licences — honest status
 
@@ -150,5 +219,16 @@ content is surfaced (QF requirement) — this includes the mushaf text itself.
 * `VerseKey` strings are exactly `chapter:verse` with no padding.
 * `Surah.translationFa` is null: no endpoint in this set provides Persian
   surah names (only English via `translated_name`). Do not invent one.
+* `manifest.coverage` is a **range, not a completeness claim**: `build.ts`
+  stamps every pack with `allChaptersCover()` (chapters 1..114, `1:1`–`114:6`).
+  For the grouped tafsir and the computed pair pack that overstates what the
+  payload holds — `tafsir-en-ibnkathir` has rows for 113 chapters (none for 105)
+  and `mutashabihat-ar` for 107. `validate.ts` prints this as a warning per pack
+  and `tests/integration/content-pack-manifests.test.ts` pins the row
+  arithmetic. No consumer may treat `coverage` as a count: the UI's "coverage"
+  figure is a `COUNT(*)` over `translation`/`tafsir` rows
+  (`desktop/src/gateway/tauriGateway.ts`, `translationOptions()`), never this
+  field. Tightening the field to per-pack reality is a generator change
+  (`npm run content:build`), not a hand-edit of `content/`.
 * Empty/whitespace text is impossible: the validator hard-fails on it, and
   post-build re-verifies every stored string against raw bytes.

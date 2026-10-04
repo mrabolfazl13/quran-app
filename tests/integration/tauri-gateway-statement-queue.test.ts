@@ -268,7 +268,23 @@ function transactions(log = driver.log): string[][] {
   return out;
 }
 
-describe('TauriGateway statement queue', () => {
+/**
+ * Wall-clock allowance for the suite.
+ *
+ * Every statement the gateway issues is serialised, so each one is a round trip
+ * through the fake driver against a real SQLite file; the 2 000-word bulk write
+ * alone measures ~1.6 s on an idle machine and the other bodies 0.5–1.1 s. The
+ * integration lane opens 16 of these files at once on an 8 GB machine, so the
+ * default 5 s budget can expire while a test is queued behind another file's
+ * I/O — most often the enrolment test, which runs last, after the bulk import
+ * has filled the database it reads from.
+ *
+ * A scheduler allowance, not a performance claim: no test here passes because a
+ * body finished quickly, and a genuine hang still fails 60 s after it started.
+ */
+const QUEUE_TIMEOUT = 60_000;
+
+describe('TauriGateway statement queue', { timeout: QUEUE_TIMEOUT }, () => {
   let gateway: TauriGateway;
 
   beforeAll(async () => {
@@ -418,6 +434,26 @@ describe('TauriGateway statement queue', () => {
     // The report the screen quotes covers the write, not just the mapping.
     const stored = await gateway.importReport();
     expect(stored!.durationMs).toBeGreaterThan(successReport().durationMs);
+  });
+
+  it('enrols a verse once — the second add returns the row that exists', async () => {
+    // Nothing in the schema keys `hifz_item` on `verse_key`, so the only thing
+    // between a double click and two live memory tracks for the same ayah is
+    // this lookup — and it has to sit inside the queued task, not beside it, or
+    // the read could land on a second connection (defect 8 all over again).
+    const first = await gateway.addHifzItem('4:1' as VerseKey);
+    const again = await gateway.addHifzItem('4:1' as VerseKey);
+
+    expect(again.id).toBe(first.id);
+    expect(await gateway.hifzItems()).toHaveLength(1);
+    expect(driver.overlaps).toEqual([]);
+    expect(driver.maxInFlight).toBe(1);
+
+    // A dropped verse is a deliberate exit, so re-enrolling it starts a new track.
+    await gateway.setHifzItemStatus(first.id, 'dropped');
+    const reEnrolled = await gateway.addHifzItem('4:1' as VerseKey);
+    expect(reEnrolled.id).not.toBe(first.id);
+    expect(await gateway.hifzItems()).toHaveLength(2);
   });
 });
 

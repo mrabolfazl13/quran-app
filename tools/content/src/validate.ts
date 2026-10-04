@@ -20,11 +20,16 @@
  *  6. Translation alignment: bulk arrays (no verse_key) proven against
  *     /verses/by_chapter/{c}?translations={id} for 12 sample chapters.
  *  7. Tafsir (when fetched): verse_key validity, non-empty text, coverage.
- *  8. Post-build: pack manifests (checksum/bytes/records) + payload text is
+ *  8. Post-build: pack manifests (checksum/bytes/records, and `pack.json`
+ *     agreeing with the `index.json` entry) + payload text is
  *     byte-identical to raw provider text, and the word-data payload's mushaf
  *     `pageNumber`/`lineNumber` equal the raw row's `page_number`/`line_number`
  *     row by row and page by page (this is what makes the 604-page grid
- *     rebuildable offline from shipped packs only).
+ *     rebuildable offline from shipped packs only). Licence and attribution are
+ *     checked for *statement*, not clearance: empty notes, an empty credit line,
+ *     a status outside the contract enum or a `'clear'` claim with neither an
+ *     SPDX id nor a licence URL all stop the build; honest `'unresolved'`
+ *     statuses pass and are printed as a warning with the pack ids.
  *  9. Post-build, the *derived* `mutashabihat-ar` pack: every pair is re-scored
  *     with the real engine function (`pairTextScore`) over the real core pack
  *     rows, every quoted phrase must actually occur in both ayat, ordering and
@@ -650,6 +655,83 @@ function validateMutashabihatPack(
 }
 
 // ---------------------------------------------------------------------------
+// post-build: licence and attribution must be *stated*, not assumed
+//
+// `AGENTS.md` rule 2: content ships only with attribution, and an unclear
+// licence must be recorded as `unresolved` rather than quietly shipped as if
+// cleared. Nothing below clears a licence — it makes the manifest *unable to
+// hide* one: an empty `license.notes`, a missing credit line, a `clear` claim
+// with no document behind it, or a licence status outside the contract enum is
+// an error that stops the build. Packs that honestly say `unresolved` stay
+// green (that is the required label), but the gate now prints them, so a
+// shipped installer cannot claim nobody noticed.
+
+const LICENSE_STATUSES = ['clear', 'attribution-required', 'unresolved'] as const;
+
+/** `license` + `attribution` shape checks for one shipped pack manifest. */
+function checkLicenceAndAttribution(
+  pack: any,
+  errors: string[],
+  unresolved: string[],
+): void {
+  const id = String(pack.id);
+  const bad = (m: string): void => { errors.push(`${id}: ${m}`); };
+  const filled = (v: unknown): boolean => typeof v === 'string' && v.trim() !== '';
+
+  const lic = pack.license;
+  if (!lic || typeof lic !== 'object') {
+    bad('manifest has no `license` object — every pack must state its licence');
+  } else {
+    if (!LICENSE_STATUSES.includes(lic.status)) bad(`license.status ${JSON.stringify(lic.status)} is outside the contract enum`);
+    if (!filled(lic.name)) bad('license.name is empty — the work being licensed must be named');
+    // `unresolved` is honest and stays green; anything *not* clear must say why.
+    if (lic.status !== 'clear' && !filled(lic.notes)) bad(`license.status is ${JSON.stringify(lic.status)} but license.notes is empty — the contract requires notes whenever the status is not 'clear'`);
+    // A cleared claim without any document is exactly the "shipped as if
+    // licensed" failure mode, so it is stopped rather than trusted.
+    if (lic.status === 'clear' && !filled(lic.spdx) && !filled(lic.url)) bad("license.status is 'clear' with neither an SPDX id nor a licence URL — a clearance claim needs the document it rests on");
+    if (lic.status === 'unresolved') unresolved.push(id);
+  }
+
+  const attr = pack.attribution;
+  if (!attr || typeof attr !== 'object') {
+    bad('manifest has no `attribution` object — source attribution is mandatory');
+  } else {
+    for (const field of ['publisher', 'work', 'sourceUrl', 'retrievedAt', 'creditLine'] as const) {
+      if (!filled(attr[field])) bad(`attribution.${field} is empty — the UI renders it as the credit line`);
+    }
+  }
+}
+
+/**
+ * `coverage` is a *range*, but it must not describe verses this payload does
+ * not contain: a pack claiming all 114 chapters while carrying rows for 113 of
+ * them overstates what the app can show. Reported as a warning (the field is
+ * metadata only — the app counts real rows from the DB), never hidden.
+ */
+function checkCoverageClaim(pack: any, lines: string[], warnings: string[]): void {
+  const seenChapters = new Set<number>();
+  const note = (key: string): void => {
+    const ch = Number(key.split(':')[0]);
+    if (Number.isInteger(ch) && ch >= 1) seenChapters.add(ch);
+  };
+  for (const l of lines) {
+    const r = JSON.parse(l) as any;
+    if (typeof r.verseKey === 'string') note(r.verseKey);
+    if (typeof r.verseKeyA === 'string') note(r.verseKeyA);
+    if (typeof r.verseKeyB === 'string') note(r.verseKeyB);
+    if (r._t === 'surah' && Number.isInteger(r.number)) seenChapters.add(r.number as number);
+  }
+  const claimed = Array.isArray(pack.coverage?.chapters) ? (pack.coverage.chapters as number[]) : [];
+  const missing = claimed.filter((c) => !seenChapters.has(c));
+  if (missing.length) {
+    warnings.push(
+      `pack ${pack.id}: manifest coverage.chapters claims ${claimed.length} chapters, the payload has rows for ${seenChapters.size} ` +
+        `(no rows for ${missing.slice(0, 6).join(',')}${missing.length > 6 ? ',…' : ''}) — coverage is a range, the app counts real rows`,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // post-build: packs must be byte-faithful to raw
 
 export function validatePacks(): ValidationResult | null {
@@ -688,15 +770,31 @@ export function validatePacks(): ValidationResult | null {
   }
   /** The shipped core pack: the corpus the computed pairs must describe. */
   const corePackData = corePackAyahs();
+  /** Packs that honestly declare an unresolved licence — printed, never hidden. */
+  const unresolvedLicencePacks: string[] = [];
   for (const pack of index.packs as any[]) {
     const dir = join(CONTENT_ROOT, pack.id);
     const payloadPath = join(dir, 'payload.jsonl');
     if (!existsSync(payloadPath)) { errors.push(`pack ${pack.id}: payload.jsonl missing`); continue; }
+    // The app imports what `index.json` says; humans read `content/<id>/pack.json`.
+    // The two must be the same manifest, or a stale file can describe a payload
+    // that is not the one being shipped.
+    const packJsonPath = join(dir, 'pack.json');
+    if (existsSync(packJsonPath)) {
+      const onDisk = JSON.parse(readFileSync(packJsonPath, 'utf8')) as any;
+      if (JSON.stringify(onDisk) !== JSON.stringify(pack)) {
+        errors.push(`pack ${pack.id}: content/${pack.id}/pack.json and the index.json entry are different manifests`);
+      }
+    } else {
+      errors.push(`pack ${pack.id}: pack.json missing next to its payload`);
+    }
     const buf = readFileSync(payloadPath);
     if (sha256hex(buf) !== pack.checksum) errors.push(`pack ${pack.id}: checksum mismatch vs pack.json`);
     if (buf.length !== pack.payloadBytes) errors.push(`pack ${pack.id}: payloadBytes mismatch (${buf.length})`);
     const lines = buf.toString('utf8').split('\n').filter((l) => l.trim());
     if (lines.length !== pack.recordCount) errors.push(`pack ${pack.id}: recordCount ${pack.recordCount} != payload lines ${lines.length}`);
+    checkLicenceAndAttribution(pack, errors, unresolvedLicencePacks);
+    checkCoverageClaim(pack, lines, warnings);
     let byteChecked = 0;
     let mushafErrors = 0;
     const packMushafPages = new Set<number>();
@@ -772,6 +870,15 @@ export function validatePacks(): ValidationResult | null {
     }
   }
   stats.indexPacks = index.packs.length;
+  stats.packsLicenceUnresolved = unresolvedLicencePacks.length;
+  if (unresolvedLicencePacks.length) {
+    warnings.push(
+      `${unresolvedLicencePacks.length}/${index.packs.length} shipped packs declare license.status = 'unresolved' ` +
+        `(${unresolvedLicencePacks.join(', ')}). That label is required by AGENTS.md rule 2 and is what makes the gap auditable — ` +
+        `but it also means none of this content may go into an installer for anyone outside personal use until a written grant ` +
+        `is recorded and the status moves to 'attribution-required'/'clear' (docs/content-sources.md).`,
+    );
+  }
   return { errors, warnings, stats };
 }
 
