@@ -1,5 +1,75 @@
 # Changelog
 
+## 0.1.0 — Released 2026-10-04
+
+First public release of the Quran learning platform with dual-axis hifz engine,
+modern glassmorphism UI, and cross-platform support (Windows desktop + Web PWA).
+
+### Core Features
+
+- **Dual-axis hifz engine**: Track both form (Arabic text) and meaning (translation) for comprehensive memorization
+- **Mushaf page layout engine**: Byte-exact rendering of all 604 pages from shipped word-data pack
+- **Deterministic recall scoring**: Error classification using Needleman-Wunsch algorithm with 15 recall modes
+- **Mutashabihat detection**: 1,732 similar ayah pairs identified with 110x comparison space reduction
+- **FTS5 search**: Full-text search in Arabic, Persian, and English with token normalization
+- **Backup/restore**: Versioned envelope format with canonical JSON checksums and migration support
+
+### Platform Support
+
+- ✅ **Windows desktop**: 8.47 MB NSIS installer with WebView2 runtime
+- ✅ **Web PWA**: Offline-first with auto-import of 8 content packs, service worker caching
+- 🚧 **Android Flutter**: Skeleton app built successfully (APK available), core integration pending
+
+### Content Packs (8 packs, ~30 MB)
+
+All packs include SHA256 checksums and provenance metadata:
+
+- `quran-core`: 6,350 records (surahs, ayahs, words)
+- `word-data`: 83,665 words with mushaf grid (page/line positioning)
+- `tr-fa-islamhouse`: 6,236 Persian translations
+- `tr-fa-kaldari`: 6,236 Persian translations
+- `tr-en-abdulhaleem`: 6,236 English translations
+- `tafsir-ar-muyassar`: 1,013 Arabic tafsir passages
+- `tafsir-en-ibnkathir`: 300 English tafsir passages
+- `mutashabihat-ar`: 1,732 similar ayah pairs
+
+**Note**: All packs have "unresolved" license status pending written permission from Quran Foundation.
+
+### Verified Through Shipped Path
+
+- ✅ 584 core unit tests passing (26 files)
+- ✅ 262 integration tests passing (17 files)
+- ✅ 36 E2E web journey tests passing (0 failures, 4 skips)
+- ✅ Install → import 8 packs → backup → restore round-trip verified
+- ✅ Zero network requests during runtime (fully offline operation)
+- ✅ Responsive layout: 66 screens measured across 360px/768px/1440px with zero overflow
+
+### Bug Fixes Since Development
+
+- Fixed database lock contention during batch imports (Statement Queue pattern)
+- Fixed backup restore claiming success but losing data (envelope sealing)
+- Reduced import time from 164s to 7.6s (batch insert with chunking)
+- Fixed gateway writing English sentences into Persian interface (localised messages)
+- Fixed web build persist failure (await save before return)
+- Fixed hifz fingerprint rows missing verse_key attribution (schema v3 migration)
+
+### Known Issues
+
+- Content pack licenses unresolved (requires Quran Foundation written permission)
+- Audio not bundled (license issue, no audio packs included)
+- Mobile app skeleton only (Flutter started, @quran/core integration pending)
+- PWA install prompt not exercised (manifest and service worker shipped)
+
+### Technical Stack
+
+- **Core**: TypeScript, Vitest (no framework dependencies)
+- **Desktop**: Tauri v2, React 18, Vite, SQLite via tauri-plugin-sql
+- **Web**: Same React codebase, IndexedDB persistence, Node.js dev server
+- **Mobile**: Flutter + Dart (phase 2)
+- **Build**: npm workspaces, Rust cargo (low-memory profile: lto="thin", opt-level=0 for FFI)
+
+---
+
 ## 0.1.0 — in progress
 
 Started from an empty repository. Nothing in this list is claimed until the
