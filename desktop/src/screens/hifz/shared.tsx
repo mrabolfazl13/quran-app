@@ -8,10 +8,11 @@
  * over stored rows — accuracy, stability and priority are never recomputed.
  */
 import { useMemo } from 'react';
-import type { DetectedError, ErrorKind, RecitedWord, RecallAttempt, RecallMode, VerseKey } from '@quran/core';
+import { RECALL_DIMENSION } from '@quran/core';
+import type { DetectedError, ErrorKind, RecallDimension, RecitedWord, RecallAttempt, RecallMode, VerseKey } from '@quran/core';
 import type { Tr } from '../../app/app-state';
 import { useApp } from '../../app/app-state';
-import { BandChip, LinkButton } from '../../ui/primitives';
+import { BandChip, Chip, LinkButton } from '../../ui/primitives';
 import { useAsync } from '../../ui/async';
 import { createHifzFacade, type HifzFacade } from '../../engine/hifzFacade';
 import './hifz.css';
@@ -111,6 +112,16 @@ const MODES: Record<RecallMode, { fa: string; en: string; helpFa: string; helpEn
     fa: 'توالی کامل', en: 'Full sequence',
     helpFa: 'همهٔ آیاتِ توالی را پی‌درهم بخوانید.', helpEn: 'Recite the whole bound sequence without stopping.',
   },
+  'meaning-to-arabic': {
+    fa: 'مفهوم ← عربی', en: 'Meaning to Arabic',
+    helpFa: 'معنای نشان‌داده‌شده از یک پاره یا آیه؛ عربیِ همان بازه را بخوانید.',
+    helpEn: 'A licensed meaning is shown; produce the Arabic of exactly that span.',
+  },
+  'concept-cue': {
+    fa: 'نشانهٔ مفهومی', en: 'Concept cue',
+    helpFa: 'معنای آیهٔ پیش نشان داده می‌شود؛ آغاز آیهٔ هدف را بخوانید.',
+    helpEn: 'The meaning of the previous ayah cues the opening of the target ayah.',
+  },
 };
 
 export function modeLabel(tr: Tr, mode: string): string {
@@ -121,6 +132,26 @@ export function modeLabel(tr: Tr, mode: string): string {
 export function modeHelp(tr: Tr, mode: string): string {
   const m = MODES[mode as RecallMode];
   return m ? tr(m.helpFa, m.helpEn) : '';
+}
+
+/**
+ * The axis a mode trains, read from the contract's own table — the UI never
+ * decides which axis a probe belongs to, so a mode reclassified in `core` shows
+ * up correctly here without a second list to keep in step.
+ */
+export function modeDimension(mode: string): RecallDimension {
+  return RECALL_DIMENSION[mode as RecallMode] ?? 'form';
+}
+
+/** Small axis marker so a learner can see which of the two memories a step works on. */
+export function AxisTag({ mode }: { mode: string }) {
+  const { tr } = useApp();
+  const dimension = modeDimension(mode);
+  return (
+    <Chip tone={dimension === 'meaning' ? 'accent' : 'neutral'} title={tr('محور این گام', 'the axis this step trains')}>
+      <span className="rtl-iso">{dimensionLabel(tr, dimension)}</span>
+    </Chip>
+  );
 }
 
 const ERROR_KINDS: Record<ErrorKind, { fa: string; en: string }> = {
@@ -158,12 +189,74 @@ const CUES: Record<string, { fa: string; en: string }> = {
   audio: { fa: 'کاوش صوتی', en: 'audio cue' },
   'free-recall': { fa: 'بدون نشانه — یادآوری آزاد', en: 'no cue — free recall' },
   sequence: { fa: 'توالی آیات', en: 'the ayah sequence' },
+  'meaning-text': { fa: 'معنای مجازِ آیه یا پاره', en: 'a licensed meaning of the ayah or chunk' },
+  'previous-ayah-meaning': { fa: 'معنای مجازِ آیهٔ پیش', en: 'a licensed meaning of the previous ayah' },
 };
 
 /** Persian label for a probe cue kind; unknown kinds surface verbatim, never dropped. */
 export function cueLabel(tr: Tr, kind: string): string {
   const c = CUES[kind];
   return c ? tr(c.fa, c.en) : kind;
+}
+
+/**
+ * Cue kinds whose text is a *meaning* (a translation or word gloss) rather than
+ * revealed Arabic. The runner must not set these in the mushaf face, and must
+ * take their direction from the pack's language, not from the app's RTL chrome.
+ */
+export const MEANING_CUE_KINDS: readonly string[] = ['meaning-text', 'previous-ayah-meaning'];
+
+export function isMeaningCue(kind: string): boolean {
+  return MEANING_CUE_KINDS.includes(kind);
+}
+
+/** Direction for cue text: the language the licensed pack carries it in decides. */
+export function cueDir(kind: string, lang: string | undefined): 'rtl' | 'ltr' {
+  if (!isMeaningCue(kind)) return 'rtl';
+  return lang === 'en' ? 'ltr' : 'rtl';
+}
+
+const DIMENSIONS: Record<string, { fa: string; en: string }> = {
+  form: { fa: 'فرم', en: 'form' },
+  meaning: { fa: 'معنا', en: 'meaning' },
+};
+
+/** Which memory axis an attempt strengthened — a stored contract value, not a guess. */
+export function dimensionLabel(tr: Tr, dimension: string): string {
+  const d = DIMENSIONS[dimension];
+  return d ? tr(d.fa, d.en) : dimension;
+}
+
+/**
+ * The two axes of one item, side by side and never blended. A null meaning axis
+ * is reported as *never tested*: showing 0 would claim a failure the learner was
+ * never asked for, and showing the form number twice would hide the gap.
+ */
+export function AxisPair({
+  form,
+  meaning,
+  tone = 'neutral',
+}: {
+  form: number | null | undefined;
+  meaning: number | null | undefined;
+  tone?: 'neutral' | 'accent';
+}) {
+  const { tr } = useApp();
+  return (
+    <span className="row stack--tight" dir="auto">
+      <Chip tone={tone}>
+        {tr('فرم', 'form')}: <span className="num">{form === null || form === undefined ? '—' : fmtPct(form)}</span>
+      </Chip>
+      <Chip tone={tone}>
+        {tr('معنا', 'meaning')}:{' '}
+        {meaning === null || meaning === undefined ? (
+          <span className="rtl-iso">{tr('آزمایش‌نشده', 'untested')}</span>
+        ) : (
+          <span className="num">{fmtPct(meaning)}</span>
+        )}
+      </Chip>
+    </span>
+  );
 }
 
 const REASONS: Record<string, { fa: string; en: string }> = {
@@ -216,6 +309,16 @@ const REVIEW_REASON_SHAPES: { re: RegExp; fa: (m: RegExpMatchArray) => string; e
   { re: /^ungrouped$/, fa: () => 'بدون گروه اشتباهی', en: (m) => m[0] },
   { re: /^band=(.+)$/, fa: (m) => `باند ${m[1]}`, en: (m) => m[0] },
   { re: /^no urgency signals$/, fa: () => 'نشانهٔ فوریتی نیست', en: (m) => m[0] },
+  {
+    re: /^meaning ([\d.]+) vs form ([\d.]+)$/,
+    fa: (m) => `معنا ${m[1]} در برابر فرم ${m[2]}`,
+    en: (m) => m[0],
+  },
+  {
+    re: /^no licensed meaning available for this ayah$/,
+    fa: () => 'برای این آیه معنای دارای پروانه نصب نیست',
+    en: (m) => m[0],
+  },
 ];
 
 const REVIEW_FACTORS: Record<string, { fa: string; en: string }> = {
@@ -228,6 +331,7 @@ const REVIEW_FACTORS: Record<string, { fa: string; en: string }> = {
   'confusion-rate': { fa: 'نرخ اشتباهی', en: 'confusion rate' },
   'group-membership': { fa: 'عضویت در گروه', en: 'group membership' },
   band: { fa: 'باند', en: 'band' },
+  'meaning-gap': { fa: 'فاصلهٔ معنا از فرم', en: 'meaning gap' },
 };
 
 export function reviewReason(tr: Tr, reason: string): string {

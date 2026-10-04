@@ -33,13 +33,13 @@ export function FacadeStatusChip() {
     return facade.status();
   }, [facade, tr]);
   if (status.status === 'loading') return <Chip tone="neutral">{tr('سنجش موتور…', 'checking engine…')}</Chip>;
-  if (status.status === 'error') return <Chip tone="danger">{status.error instanceof Error ? status.error.message : String(status.error)}</Chip>;
+  if (status.status === 'error') return <Chip tone="danger" wrap>{status.error instanceof Error ? status.error.message : String(status.error)}</Chip>;
   const value = status.value;
   if (!value) return null;
   return value.integrated ? (
-    <Chip tone="info" title={value.detail}>{tr('موتور حافظه یکپارچه است', 'Memory engine integrated')} · <span className="ltr-iso">{value.detail}</span></Chip>
+    <Chip tone="info" wrap title={value.detail}>{tr('موتور حافظه یکپارچه است', 'Memory engine integrated')} · <span className="ltr-iso">{value.detail}</span></Chip>
   ) : (
-    <Chip tone="danger" title={value.detail}>{tr('موتور حافظه در این ساخت نیست', 'Memory engine not present in this build')}</Chip>
+    <Chip tone="danger" wrap title={value.detail}>{tr('موتور حافظه در این ساخت نیست', 'Memory engine not present in this build')}</Chip>
   );
 }
 

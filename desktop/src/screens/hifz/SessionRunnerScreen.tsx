@@ -22,13 +22,18 @@ import { StateBoundary, useAsync, type AsyncState } from '../../ui/async';
 import { Button, Chip, LinkButton, Meter, Panel } from '../../ui/primitives';
 import {
   AyahLink,
+  AxisPair,
+  AxisTag,
   BandTag,
   ErrorChips,
   WordAlignment,
+  cueDir,
   cueLabel,
+  dimensionLabel,
   errorMessage,
   fmtDuration,
   fmtPct,
+  isMeaningCue,
   modeHelp,
   modeLabel,
   probeReason,
@@ -227,6 +232,7 @@ function ActiveRunner({ session, focus }: { session: HifzSession; focus: Focus |
                 >
                   <span className="hifz-step__mark" aria-hidden="true">{attempted ? '✓' : i + 1}</span>
                   <span className="rtl-iso">{modeLabel(tr, s.mode)}</span>
+                  <AxisTag mode={s.mode} />
                   {s.verseKey ? <AyahLink verseKey={s.verseKey} /> : <span className="faint">{tr('بی‌آیه', 'no ayah')}</span>}
                   {s.completedAt ? <span className="faint ltr-iso mono">{s.completedAt.slice(11, 19)}</span> : null}
                 </li>
@@ -320,7 +326,7 @@ function StepPanel({
         mode: p.mode,
         sessionId: session.id,
         produced,
-        cue: p.probe ? { kind: p.probe.cue.kind, text: p.probe.cue.text } : null,
+        cue: p.probe ? { ...p.probe.cue } : null,
         startedAt: startedAtRef.current,
         durationMs: Date.now() - Date.parse(startedAtRef.current),
         selfConfidence: confidence === '' ? null : Number(confidence),
@@ -365,7 +371,8 @@ function StepPanel({
             <Panel
               title={
                 <span dir="auto">
-                  {tr('گام', 'Step')} {stepIndex + 1} — <span className="rtl-iso">{modeLabel(tr, p.mode)}</span>
+                  {tr('گام', 'Step')} {stepIndex + 1} — <span className="rtl-iso">{modeLabel(tr, p.mode)}</span>{' '}
+                  <AxisTag mode={p.mode} />
                 </span>
               }
             >
@@ -396,7 +403,24 @@ function StepPanel({
                       )}
                     </div>
                   ) : probeData.cue.text ? (
-                    <div className="cue-box__text quran-text" dir="rtl">{probeData.cue.text}</div>
+                    isMeaningCue(probeData.cue.kind) ? (
+                      // A meaning cue is licensed prose, not revelation: it gets
+                      // the UI face and the direction of the pack it came from,
+                      // and it names that pack so the source is never ambiguous.
+                      <div className="cue-box__meaning" dir={cueDir(probeData.cue.kind, probeData.cue.lang)}>
+                        <div className="cue-box__meaning-text">{probeData.cue.text}</div>
+                        <div className="cue-box__meaning-source row stack--tight">
+                          <span className="faint rtl-iso">
+                            {tr('منبع معنا (بستهٔ دارای پروانه)', 'meaning source (licensed pack)')}
+                          </span>
+                          <span className="mono ltr-iso">{probeData.cue.packId ?? '—'}</span>
+                          {probeData.cue.lang ? <span className="faint ltr-iso">{probeData.cue.lang}</span> : null}
+                          {probeData.cueVerseKey ? <AyahLink verseKey={probeData.cueVerseKey} /> : null}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="cue-box__text quran-text" dir="rtl">{probeData.cue.text}</div>
+                    )
                   ) : (
                     <div className="muted rtl-iso">{tr('بدون نشانهٔ متنی', 'no text cue')}</div>
                   )}
@@ -525,17 +549,29 @@ function VerdictPanel({
           <Chip tone="neutral">
             {tr('زمان', 'time')}: <span className="num">{fmtDuration(tr, attempt.durationMs)}</span>
           </Chip>
-          <Chip tone="neutral">{tr('حالت', 'mode')}: <span className="rtl-iso">{modeLabel(tr, attempt.mode)}</span></Chip>
+          <Chip tone="neutral">
+            {tr('حالت', 'mode')}: <span className="rtl-iso">{modeLabel(tr, attempt.mode)}</span>
+          </Chip>
+          <Chip tone={attempt.dimension === 'meaning' ? 'accent' : 'neutral'}>
+            {tr('محور', 'axis')}: <span className="rtl-iso">{dimensionLabel(tr, attempt.dimension)}</span>
+          </Chip>
           {itemAfter ? (
             <span className="row stack--tight">
               <span className="muted rtl-iso">{tr('باند اکنون', 'band now')}</span>
               <BandTag band={itemAfter.band} />
-              <Chip tone="neutral">
-                {tr('پایداری', 'stability')} <span className="num">{itemAfter.stability}</span>
-              </Chip>
+              <AxisPair form={itemAfter.formStability} meaning={itemAfter.meaningStability} />
             </span>
           ) : null}
         </div>
+
+        {itemAfter ? (
+          <p className="faint rtl-iso">
+            {tr(
+              'باند از ضعیف‌ترِ دو محور خوانده می‌شود. «آزمایش‌نشده» یعنی هنوز پرسش معنایی برایتان ساخته نشده، نه اینکه نمره‌تان صفر است.',
+              'The band is read from the weaker of the two axes. “Untested” means no meaning probe has been asked yet — not a score of zero.',
+            )}
+          </p>
+        ) : null}
 
         <ErrorChips errors={attempt.errors} />
 

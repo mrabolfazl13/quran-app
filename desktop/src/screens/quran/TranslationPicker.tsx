@@ -66,6 +66,7 @@ export function TranslationPicker({
               <input
                 type="radio"
                 name="translation-pack"
+                data-pack-id={option.packId}
                 checked={value === option.packId}
                 onChange={() => onChange(option.packId)}
               />

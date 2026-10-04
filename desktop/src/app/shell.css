@@ -1,125 +1,466 @@
-/* Shell geometry. Direction-sensitive gaps rely on logical properties because
-   the chrome is RTL by default and can be switched to LTR at runtime. */
+/* ============================================================================
+   Shell geometry — the responsive contract (docs/design-system.md, "Layout").
+   Mobile-first: the rules below 768px ARE the phone layout an Android build
+   inherits; `min-width` queries only ever add structure. Direction-sensitive
+   gaps use logical properties because the chrome is RTL by default.
+   ========================================================================== */
+
+/* One box model for the whole app. The system is measured in a 4/8px rhythm
+   with `inline-size: 100%` + padding everywhere; under the browser default
+   (content-box) every padded block would be `padding × 2` wider than its
+   container — which is exactly how horizontal scroll appears on a phone. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
 
 html,
 body {
   margin: 0;
   min-height: 100%;
+  /* A descendant (a long error string, a wide control) must never be able to
+     widen the page past the viewport: the standalone loading/empty/error
+     states render directly under `#root`, outside the capping `.content`. */
+  max-inline-size: 100vw;
   background: var(--bg);
   color: var(--text);
 }
 
+#root {
+  min-height: 100dvh;
+  max-inline-size: 100vw;
+  overflow-x: clip;
+}
+
 body {
-  font-family: 'Vazirmatn', 'Inter', system-ui, sans-serif;
-  font-size: var(--fs-400);
+  /* The lit page ground (see tokens.css `--app-bg`): corner washes over the
+     solid paper/ink, painted once and never tiled. No `fixed` attachment —
+     that repaints badly in a mobile WebView, which is a shipping target. */
+  background: var(--app-bg);
+  background-repeat: no-repeat;
+}
+
+html {
+  /* The page never scrolls sideways, at any width, on any route. */
+  overflow-x: hidden;
+  /* Keep the ink/paper background painted under an overscroll bounce. */
+  background: var(--bg);
+}
+
+body {
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
   line-height: var(--lh-ui);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 #root {
-  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/* Every tappable primitive gets the browser's fastest touch behaviour. */
+a,
+button,
+input,
+select,
+textarea,
+summary,
+[role='button'] {
+  touch-action: manipulation;
 }
 
 .shell {
   display: grid;
-  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
-  min-height: 100vh;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 100dvh;
+  /* The fixed navigation overhangs the content; one variable per axis keeps
+     the padding honest everywhere instead of scattering magic numbers. */
+  --nav-overhang-block: calc(var(--tabbar-height) + var(--safe-block-end));
+  --nav-overhang-inline: 0px;
 }
 
+/* ------------------------------------------------------------------ phone */
+/* Below 768px the sidebar is a bottom tab bar: icon and text together, five
+   destinations max, the rest in a «بیشتر» sheet. */
 .sidebar {
-  position: sticky;
-  top: 0;
-  height: 100vh;
-  padding: var(--sp-5) var(--sp-3);
-  border-inline-end: 1px solid var(--border);
-  background: var(--surface-0);
-  overflow-y: auto;
-}
-
-.sidebar ul {
+  position: fixed;
+  inset-inline: 0;
+  inset-block-end: 0;
+  z-index: var(--stack-tabbar);
   display: flex;
   flex-direction: column;
   gap: var(--sp-1);
+  min-block-size: calc(var(--tabbar-height) + var(--safe-block-end));
+  padding: var(--sp-2) var(--sp-2) calc(var(--sp-2) + var(--safe-block-end));
+  padding-inline: max(var(--sp-2), var(--safe-inline-start));
+  border-block-start: var(--border-width) solid var(--border);
+  background: color-mix(in srgb, var(--surface-0) 96%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 -10px 26px -18px rgb(var(--shadow-color) / 0.5);
+}
+
+.sidebar ul,
+.navlist {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: var(--gap-tappable);
+  inline-size: 100%;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
+.navlist li {
+  min-width: 0;
+}
+
 .navlink {
+  position: relative;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: var(--sp-3);
-  min-height: var(--inline-target);
-  padding: 0 var(--sp-3);
-  border-radius: var(--radius-2);
-  color: var(--text);
-  font-size: var(--fs-500);
+  justify-content: center;
+  gap: 2px;
+  min-block-size: 48px;
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--radius-control);
+  color: var(--text-muted);
+  font-size: var(--text-meta);
+  font-weight: var(--weight-medium);
   text-decoration: none;
+  text-align: center;
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
 }
-
+.navlink:active {
+  transform: scale(var(--press-scale));
+}
 .navlink:hover {
-  background: var(--surface-2);
+  background: var(--tint-hover);
+  color: var(--text);
+}
+.navlink__icon {
+  display: inline-flex;
+  flex: none;
+  color: inherit;
+}
+.navlink__label {
+  max-inline-size: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Active is marked three ways at once — shape, colour and a gold rule — so it
+   survives colour-blind users, a phone in sunlight and a dark theme. */
+.navlink.is-active {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  font-weight: var(--weight-semibold);
+}
+.navlink.is-active::after {
+  content: '';
+  flex: none;
+  inline-size: 22px;
+  block-size: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--gold);
+  margin-block-start: 1px;
+}
+.navlink.is-active .navlink__icon {
+  color: var(--accent);
 }
 
-.navlink.is-active {
+.navmore {
+  position: relative;
+}
+.navmore summary {
+  list-style: none;
+  cursor: pointer;
+}
+.navmore summary::-webkit-details-marker {
+  display: none;
+}
+.navmore__btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-block-size: 48px;
+  inline-size: 100%;
+  padding: var(--sp-1) var(--sp-2);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--text-meta);
+  font-weight: var(--weight-medium);
+}
+.navmore__btn:hover {
+  background: var(--tint-hover);
+  color: var(--text);
+}
+.navmore__list {
+  position: fixed;
+  inset-inline: var(--sp-2);
+  inset-block-end: calc(var(--tabbar-height) + var(--safe-block-end) + var(--sp-2));
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-3);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-sheet);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-3);
+  animation: sheet-up var(--dur-2) var(--ease-out);
+}
+.navmore__list li {
+  min-inline-size: 0;
+}
+.navmore[open] .navmore__btn,
+.navmore summary.is-active .navmore__btn {
   background: var(--accent-soft);
   color: var(--accent-strong);
-  font-weight: var(--weight-semibold);
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
 }
 
 .shell__main {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  padding-inline-end: var(--nav-overhang-inline);
 }
 
 .header {
   position: sticky;
-  top: 0;
+  inset-block-start: 0;
   z-index: var(--stack-panel);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--sp-4);
-  padding: var(--sp-3) var(--sp-5);
-  border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--surface-0) 92%, transparent);
-  backdrop-filter: blur(6px);
+  gap: var(--sp-3);
+  min-block-size: calc(var(--header-height) + var(--safe-block-start));
+  padding: var(--sp-2) var(--gutter);
+  padding-block-start: calc(var(--sp-2) + var(--safe-block-start));
+  padding-inline-start: max(var(--gutter), var(--safe-inline-start));
+  padding-inline-end: max(var(--gutter), var(--safe-inline-end));
+  border-block-end: var(--border-width) solid var(--border);
+  background: color-mix(in srgb, var(--surface-0) 94%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 6px 18px -18px rgb(var(--shadow-color) / 0.8);
 }
 
 .header__title {
   margin: 0;
-  font-size: var(--fs-700);
-  font-weight: var(--weight-semibold);
+  font-size: var(--text-section);
+  font-weight: var(--weight-bold);
+  line-height: var(--lh-tight);
+  letter-spacing: var(--tracking-tight);
+  color: var(--text-strong);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .header__right {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
+  gap: var(--sp-1);
+  flex: none;
 }
 
 .content {
   flex: 1;
   min-width: 0;
-  padding: var(--sp-5);
+  /* A flex item with auto cross-axis margins is *not* stretched, so without an
+     explicit inline size this column is sized by its widest descendant — one
+     720px table made every phone screen 786px wide and cut the text off. */
+  inline-size: 100%;
+  max-inline-size: var(--measure-page);
+  margin-inline: auto;
+  padding: var(--sp-4) var(--gutter);
+  padding-block-end: calc(var(--sp-6) + var(--nav-overhang-block));
+  padding-inline-start: max(var(--gutter), var(--safe-inline-start));
+  padding-inline-end: max(var(--gutter), var(--safe-inline-end));
 }
 
-@media (max-width: 900px) {
+/* A phone turned sideways keeps the bar, but the mushaf and the session input
+   must not be clipped by it or by the keyboard. */
+@media (max-width: 900px) and (orientation: landscape) {
   .shell {
-    grid-template-columns: minmax(0, 1fr);
+    --nav-overhang-block: calc(var(--tabbar-height) + var(--safe-block-end));
+    --nav-overhang-inline: 0px;
+    --tabbar-height: 48px;
   }
-  .sidebar {
-    position: static;
-    height: auto;
-    border-inline-end: 0;
-    border-block-end: 1px solid var(--border);
-  }
-  .sidebar ul {
+  .navlink,
+  .navmore__btn {
     flex-direction: row;
-    overflow-x: auto;
+    gap: var(--sp-1);
+    min-block-size: 40px;
+  }
+  .navlink.is-active::after {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------------- 400 */
+@media (min-width: 400px) {
+  :root {
+    --tabbar-height: 64px;
+  }
+}
+
+/* ------------------------------------------------------------------- 640 */
+@media (min-width: 640px) {
+  .header__title {
+    font-size: var(--text-title);
+    white-space: normal;
   }
   .content {
-    padding: var(--sp-4);
+    padding-block-start: var(--sp-5);
   }
+}
+
+/* ------------------------------------------------------------------- 768 */
+/* Tablet: the tab bar becomes a permanent icon rail on the inline-start, and
+   the page gets its two-column breathing room back. */
+@media (min-width: 768px) {
+  .shell {
+    grid-template-columns: var(--rail-width) minmax(0, 1fr);
+    --nav-overhang-block: 0px;
+    --nav-overhang-inline: 0px;
+  }
+  .sidebar {
+    position: sticky;
+    inset: auto;
+    z-index: var(--stack-panel);
+    inline-size: var(--rail-width);
+    block-size: 100dvh;
+    flex-direction: column;
+    justify-content: flex-start;
+    padding: var(--sp-4) var(--sp-2);
+    border-block-start: 0;
+    border-inline-end: var(--border-width) solid var(--border);
+    box-shadow: none;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .sidebar ul,
+  .navlist {
+    display: flex;
+    flex-direction: column;
+    grid-auto-flow: initial;
+    gap: var(--sp-2);
+  }
+  .navlink {
+    min-block-size: 56px;
+    padding: var(--sp-2) var(--sp-1);
+    font-size: var(--text-meta);
+  }
+  .navmore {
+    margin-block-start: var(--sp-1);
+  }
+  .navmore__btn {
+    min-block-size: 56px;
+    padding: var(--sp-2) var(--sp-1);
+  }
+  .navmore__list {
+    position: absolute;
+    inset-inline-start: calc(100% + var(--sp-2));
+    inset-block-start: 0;
+    inset-block-end: auto;
+    inline-size: min(260px, 70vw);
+  }
+  .header {
+    min-block-size: 64px;
+  }
+}
+
+/* ------------------------------------------------------------------ 1024 */
+/* Desktop: the rail opens into the full sidebar with labels beside icons. */
+@media (min-width: 1024px) {
+  .shell {
+    grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  }
+  .sidebar {
+    inline-size: var(--sidebar-width);
+    padding: var(--sp-5) var(--sp-3);
+    gap: var(--sp-4);
+  }
+  .sidebar ul,
+  .navlist {
+    gap: var(--sp-1);
+  }
+  .navlink {
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: var(--sp-3);
+    min-block-size: calc(var(--target) + 4px);
+    padding: 0 var(--sp-3);
+    font-size: var(--text-body);
+    border-start-start-radius: var(--radius-control);
+    border-start-end-radius: var(--radius-control);
+  }
+  .navlink.is-active {
+    gap: var(--sp-3);
+  }
+  .navlink.is-active::after {
+    order: -1;
+    inline-size: 3px;
+    block-size: 20px;
+    margin-block-start: 0;
+    margin-inline-end: calc(var(--sp-1) * -1);
+  }
+  .navmore {
+    position: static;
+  }
+  .navmore__btn {
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: var(--sp-3);
+    min-block-size: var(--target);
+    padding: 0 var(--sp-3);
+    font-size: var(--text-body);
+  }
+  .navmore__list {
+    inset-inline-start: var(--sidebar-width);
+    inset-block-start: var(--sp-4);
+    inline-size: 260px;
+  }
+  .header {
+    min-block-size: 72px;
+    gap: var(--sp-4);
+  }
+  .header__title {
+    font-size: var(--text-title);
+    white-space: normal;
+  }
+}
+
+/* ------------------------------------------------------------------ 1280 */
+@media (min-width: 1280px) {
+  .content {
+    padding-inline: var(--sp-6);
+  }
+  .header {
+    padding-inline: var(--sp-6);
+  }
+}
+
+/* A sidebar that never has to scroll sideways, at any width. */
+.sidebar li {
+  min-width: 0;
 }

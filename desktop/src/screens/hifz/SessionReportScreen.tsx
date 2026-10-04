@@ -123,8 +123,9 @@ function Report({ session, attempts }: { session: HifzSession; attempts: RecallA
               ) : (
                 <ul className="list">
                   {report.weakSegments.map((s) => (
-                    <li key={`${s.itemId}-${s.segmentPosition}`}>
+                    <li key={`${s.itemId}-${s.verseKey}-${s.segmentPosition}`}>
                       <span className="mono ltr-iso">{s.itemId}</span>{' · '}
+                      <AyahLink verseKey={s.verseKey} />{' · '}
                       {tr('پاره', 'segment')} <span className="num">{s.segmentPosition}</span>{' · '}
                       <Meter value={s.accuracy} label={fmtPct(s.accuracy)} tone="warn" />
                       <LinkButton to="/hifz/items" className="faint">{tr('بافت', 'fingerprint')}</LinkButton>
@@ -140,8 +141,9 @@ function Report({ session, attempts }: { session: HifzSession; attempts: RecallA
               ) : (
                 <ul className="list">
                   {report.weakTransitions.map((t) => (
-                    <li key={`${t.itemId}-${t.toWord}`}>
+                    <li key={`${t.itemId}-${t.verseKey}-${t.toWord}`}>
                       <span className="mono ltr-iso">{t.itemId}</span>{' · '}
+                      <AyahLink verseKey={t.verseKey} />{' · '}
                       {tr('واژهٔ گذار', 'boundary word')} <span className="num">{t.toWord}</span>{' · '}
                       <Meter value={t.stability} label={fmtPct(t.stability)} tone="danger" />
                     </li>

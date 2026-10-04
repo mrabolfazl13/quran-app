@@ -10,8 +10,8 @@
 import type { HifzItem, HifzSession, RecallAttempt } from '@quran/core';
 import { useApp } from '../../app/app-state';
 import { StateBoundary, useAsync } from '../../ui/async';
-import { Chip, LinkButton, Meter, Panel } from '../../ui/primitives';
-import { AyahLink, BandTag, fmtDate, fmtDateTime, fmtDuration, fmtPct, medianOf, modeLabel } from './shared';
+import { Chip, LinkButton, Panel } from '../../ui/primitives';
+import { AyahLink, AxisPair, BandTag, fmtDate, fmtDateTime, fmtDuration, fmtPct, medianOf, modeLabel } from './shared';
 
 interface ProgressData {
   sessions: HifzSession[];
@@ -77,6 +77,12 @@ function Progress({ data }: { data: ProgressData }) {
   const timedAttempts = attempts.filter((a) => a.durationMs !== null);
   const totalMs = timedAttempts.reduce((sum, a) => sum + (a.durationMs ?? 0), 0);
 
+  // The two axes are reported apart. A single blended accuracy is exactly the
+  // number this method exists to refuse: it hides a fluent tongue over a blank
+  // understanding, and the two cases need different work tomorrow.
+  const formAttempts = attempts.filter((a) => a.dimension === 'form');
+  const meaningAttempts = attempts.filter((a) => a.dimension === 'meaning');
+
   // Per-item timeline in chronological order (stored rows carry their own times).
   const byItem = new Map<string, RecallAttempt[]>();
   for (const a of attempts) {
@@ -98,6 +104,18 @@ function Progress({ data }: { data: ProgressData }) {
         <div className="row">
           <Chip tone="accent">{tr('تلاش‌ها', 'attempts')}: <span className="num">{attempts.length}</span></Chip>
           <Chip tone="neutral">{tr('میانیگین دقت', 'median accuracy')}: <span className="num">{median === null ? '—' : fmtPct(median)}</span></Chip>
+          <Chip tone="neutral">
+            {tr('میانهٔ فرم', 'form median')} ({formAttempts.length}):{' '}
+            <span className="num">{fmtPct(medianOf(formAttempts.map((a) => a.accuracy)) ?? 0)}</span>
+          </Chip>
+          <Chip tone="accent">
+            {tr('میانهٔ معنا', 'meaning median')} ({meaningAttempts.length}):{' '}
+            {meaningAttempts.length === 0 ? (
+              <span className="rtl-iso">{tr('آزمایش‌نشده', 'untested')}</span>
+            ) : (
+              <span className="num">{fmtPct(medianOf(meaningAttempts.map((a) => a.accuracy)) ?? 0)}</span>
+            )}
+          </Chip>
           <Chip tone="neutral">{tr('مجموع زمان', 'recorded time')}: <span className="num">{fmtDuration(tr, attempts.length === 0 ? null : totalMs)}</span></Chip>
           <Chip tone="neutral">
             {tr('تلاش‌های بدون زمان ثبت‌شده', 'attempts without duration')}: <span className="num">{attempts.length - timedAttempts.length}</span>
@@ -115,18 +133,33 @@ function Progress({ data }: { data: ProgressData }) {
               const item = itemsById.get(itemId) ?? null;
               const values = list.map((a) => a.accuracy);
               const last = list[list.length - 1];
+              const formValues = list.filter((a) => a.dimension === 'form').map((a) => a.accuracy);
+              const meaningValues = list.filter((a) => a.dimension === 'meaning').map((a) => a.accuracy);
               return (
                 <li key={itemId} className="item-row">
                   <span className="item-row__grow">
                     {item ? <AyahLink verseKey={item.verseKey} /> : <span className="mono ltr-iso">{itemId}</span>}
                     {item ? <BandTag band={item.band} /> : null}
                   </span>
-                  <Sparkline values={values} label={tr('نمودار دقت تلاش‌های ذخیره‌شده', 'accuracy of the stored attempts')} />
+                  {/* One line per axis, from that axis's own attempts: the shape of
+                      the gap is the information, and one merged line erases it. */}
+                  <span className="hifz-axis-spark">
+                    <span className="faint rtl-iso">{tr('فرم', 'form')}</span>
+                    <Sparkline values={formValues} label={tr('دقت تلاش‌های فرم', 'accuracy of the form attempts')} />
+                  </span>
+                  <span className="hifz-axis-spark">
+                    <span className="faint rtl-iso">{tr('معنا', 'meaning')}</span>
+                    {meaningValues.length === 0 ? (
+                      <span className="faint rtl-iso">{tr('آزمایش‌نشده', 'untested')}</span>
+                    ) : (
+                      <Sparkline values={meaningValues} label={tr('دقت تلاش‌های معنا', 'accuracy of the meaning attempts')} />
+                    )}
+                  </span>
                   <Chip tone="neutral">{tr('تلاش', 'attempts')}: <span className="num">{list.length}</span></Chip>
                   <Chip tone="neutral">{tr('میانه', 'median')}: <span className="num">{fmtPct(medianOf(values) ?? 0)}</span></Chip>
                   <span className="faint ltr-iso">{tr('آخرین', 'last')}: {last ? `${fmtPct(last.accuracy)} · ${fmtDate(last.startedAt)}` : '—'}</span>
                   {last ? <Chip tone="neutral">{tr('حالت', 'mode')}: <span className="rtl-iso">{modeLabel(tr, last.mode)}</span></Chip> : null}
-                  {item ? <Meter value={item.stability} label={`${item.stability}`} /> : null}
+                  {item ? <AxisPair form={item.formStability} meaning={item.meaningStability} /> : null}
                 </li>
               );
             })}

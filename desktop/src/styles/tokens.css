@@ -1,11 +1,28 @@
 /* ============================================================================
-   Design tokens — the only place a colour, radius, shadow or step is defined.
-   Light + dark themes are both expressed here; components consume semantics
-   (--surface-1, --text-muted, …) and never a raw hex.
-   See docs/ux-spec.md for the reasoning behind each scale.
+   Design tokens — the only place a colour, radius, shadow, motion curve or
+   type step is defined. Light + dark themes are both expressed here; components
+   consume semantics (--surface-1, --text-muted, --text-body, …) and never a raw
+   hex. Contract: docs/design-system.md.
+
+   Two layers on purpose:
+   • `--fs-*` are the STATIC steps. `screens/me/font-scale.ts` reads them back
+     with `getComputedStyle` and multiplies them by the reader's UI scale, so
+     they must stay plain `rem` literals — a `clamp()` here would fail that
+     parser and silently drop the user's font scale.
+   • `--text-*` are the FLUID steps: each static step plus a viewport term,
+     clamped between the static step and a multiple of it. New fluidity without
+     breaking the scale contract — a larger base makes the whole ramp larger.
    ========================================================================== */
 
 :root {
+  /* ---------------------------------------------------------------- fluid */
+  /* A fluid step is `static step + a vw term`, floored at the static step and
+     capped at a multiple of it. All three terms are lengths, so the clamp is
+     valid, and because every term derives from the static step the reader's UI
+     scale (which rewrites `--fs-*` on `<html>`) still moves the whole ramp. */
+  --fluid-cap: 1.16;   /* body copy grows at most 16% */
+  --fluid-cap-head: 1.3;
+
   /* ---------------------------------------------------------------- type */
   /* Modular-ish scale tuned for RTL Persian chrome, which needs a slightly
      larger x-height than Latin at the same nominal px. */
@@ -19,15 +36,44 @@
   --fs-800: 1.75rem;   /* 28px  display */
   --fs-900: 2.25rem;   /* 36px  hero */
 
-  --lh-tight: 1.25;
+  /* Semantic, fluid. Measured 360 → 1440: 12→13.2, 13→14.3, 14→15.4, 16→17.2
+     (body, see below), 18→21.6, 22→28.6, 28→36.4, 36→46.8. */
+  --text-meta: clamp(var(--fs-100), calc(var(--fs-100) + 0.05vw), calc(var(--fs-100) * var(--fluid-cap)));
+  --text-label: clamp(var(--fs-200), calc(var(--fs-200) + 0.07vw), calc(var(--fs-200) * var(--fluid-cap)));
+  --text-dense: clamp(var(--fs-300), calc(var(--fs-300) + 0.09vw), calc(var(--fs-300) * var(--fluid-cap)));
+  /* Chrome body copy never renders below 16px at the default UI scale, because
+     15px Persian on a phone is a legibility failure, not a style choice. The
+     floor is written RELATIVE to `--fs-400` (×1.0667 = 16px at 1.0) instead of
+     an absolute `1rem`: `screens/me/font-scale.ts` scales `--fs-*` down to 0.5×
+     for readers who need smaller text, and an absolute floor would silently
+     defeat that accessibility setting. */
+  --text-body: max(
+    calc(var(--fs-400) * 1.0667),
+    clamp(var(--fs-400), calc(var(--fs-400) + 0.15vw), calc(var(--fs-400) * var(--fluid-cap)))
+  );
+  --text-strong-body: clamp(var(--fs-500), calc(var(--fs-500) + 0.18vw), calc(var(--fs-500) * var(--fluid-cap)));
+  --text-section: clamp(var(--fs-600), calc(var(--fs-600) + 0.3vw), calc(var(--fs-600) * var(--fluid-cap-head)));
+  --text-title: clamp(var(--fs-700), calc(var(--fs-700) + 0.55vw), calc(var(--fs-700) * var(--fluid-cap-head)));
+  --text-display: clamp(var(--fs-800), calc(var(--fs-800) + 0.8vw), calc(var(--fs-800) * var(--fluid-cap-head)));
+  --text-hero: clamp(var(--fs-900), calc(var(--fs-900) + 1.1vw), calc(var(--fs-900) * var(--fluid-cap-head)));
+
+  --lh-tight: 1.2;
   --lh-ui: 1.6;
   /* Mushaf text breathes: stacked harakat + kasratayn must never collide. */
   --lh-quran: 2.15;
+  --lh-display: 1.15;
+
+  --tracking-tight: -0.012em;
+  --tracking-label: 0.01em;
 
   --weight-regular: 400;
   --weight-medium: 500;
   --weight-semibold: 600;
   --weight-bold: 700;
+
+  /* Every bundled family ships 400–700 only; nothing above 700 is available. */
+  --font-ui: 'Vazirmatn', 'Inter', system-ui, sans-serif;
+  --font-latin: 'Inter', 'Vazirmatn', system-ui, sans-serif;
 
   /* Mushaf and Arabic sizes are rem-based so a reader can scale them in Me. */
   --mushaf-size: 2rem;
@@ -45,125 +91,300 @@
   --sp-8: 64px;
   --sp-9: 96px;
 
-  --inline-target: 44px; /* minimum touch/click target */
+  /* Page gutter and section rhythm are fluid; the 4/8 grid is preserved at
+     both ends so nothing lands on an odd pixel. */
+  --gutter: clamp(16px, 4vw, 32px);
+  --stack-gap: clamp(16px, 2.5vw, 24px);
 
-  --radius-1: 6px;
-  --radius-2: 10px;
-  --radius-3: 16px;
+  --target: 44px;        /* minimum touch/click target */
+  --inline-target: 44px; /* original name, still honoured */
+  --gap-tappable: 8px;   /* minimum gap between two adjacent targets */
+
+  /* ------------------------------------------------------------- shape */
+  /* One scale, applied by role: control / card / sheet. The scale is softened
+     a step from the old values so a control reads as a modern, friendly pill
+     rather than a hard box — a purely cosmetic change that cannot affect
+     layout, wrapping or clipping. */
+  --radius-1: 12px;   /* control: buttons, inputs, chips, menu rows */
+  --radius-2: 18px;   /* card: panels, list items, stat tiles */
+  --radius-3: 24px;   /* sheet: bottom sheets, dialogs, full-bleed blocks */
+  --radius-4: 32px;   /* oversized editorial blocks only */
   --radius-pill: 999px;
+  --radius-control: var(--radius-1);
+  --radius-card: var(--radius-2);
+  --radius-sheet: var(--radius-3);
 
-  --ring: 0 0 0 2px var(--accent-ring);
-  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.06), 0 1px 1px rgb(0 0 0 / 0.04);
-  --shadow-2: 0 6px 18px -6px rgb(0 0 0 / 0.18), 0 2px 6px -2px rgb(0 0 0 / 0.1);
-  --shadow-3: 0 24px 60px -20px rgb(0 0 0 / 0.35), 0 8px 24px -12px rgb(0 0 0 / 0.2);
+  --border-width: 1px;
 
+  /* ------------------------------------------------------------ gradients */
+  /* A small, disciplined set of gradients for the surfaces that should catch
+     the eye — the primary CTA and a hero panel. Every stop is a theme token,
+     so the same declaration re-tints itself in dark mode; nothing here is a
+     raw colour. They are background-only, so they can never change text
+     contrast or push a glyph out of its box. */
+  --gradient-accent: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
+  --gradient-hero: linear-gradient(160deg, var(--surface-1) 0%, var(--surface-2) 100%);
+
+  /* --------------------------------------------------------- elevation */
+  /* A real 3-step ramp: ambient + key + contact shadow, tinted per theme by
+     --shadow-color, plus an optional top edge light (--edge) so a plane reads
+     in dark mode where a black shadow is invisible. */
+  --shadow-1:
+    0 1px 1px rgb(var(--shadow-color) / var(--sh-a1)),
+    0 2px 4px -1px rgb(var(--shadow-color) / var(--sh-a2)),
+    var(--edge);
+  --shadow-2:
+    0 2px 2px rgb(var(--shadow-color) / var(--sh-a1)),
+    0 6px 12px -3px rgb(var(--shadow-color) / var(--sh-a2)),
+    0 16px 28px -12px rgb(var(--shadow-color) / var(--sh-a3)),
+    var(--edge);
+  --shadow-3:
+    0 8px 12px -6px rgb(var(--shadow-color) / var(--sh-a2)),
+    0 28px 48px -12px rgb(var(--shadow-color) / var(--sh-a3)),
+    0 56px 80px -24px rgb(var(--shadow-color) / var(--sh-a4)),
+    var(--edge);
+  /* Flat hairline for surfaces that must not look lifted (insets, wells). */
+  --shadow-inset: inset 0 1px 2px rgb(var(--shadow-color) / var(--sh-a2));
+
+  --ring: 0 0 0 2px var(--surface-1), 0 0 0 4px var(--focus-ring);
+  --ring-tight: 0 0 0 2px var(--focus-ring);
+
+  --stack-page: 1;
   --stack-panel: 40;
+  --stack-tabbar: 45;
   --stack-overlay: 60;
+  --stack-sheet: 65;
   --stack-toast: 80;
 
-  --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
-  --dur-1: 120ms;
+  /* -------------------------------------------------------------- motion */
+  /* Enter slow-ish and ease-out; exit fast and ease-in. A press is the shortest
+     thing in the system; nothing is slower than 260ms. */
+  --dur-press: 90ms;
+  --dur-1: 150ms;
   --dur-2: 200ms;
+  --dur-3: 260ms;
+  --dur-exit: 140ms;
+  --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-in: cubic-bezier(0.55, 0.06, 0.68, 0.19);
+  --ease-standard: cubic-bezier(0.2, 0.0, 0.0, 1.0);
+  --ease-spring: cubic-bezier(0.16, 0.84, 0.44, 1);
+  --stagger: 35ms; /* list entrance step, 3 items max */
+  --lift-hover: -1px;
+  --press-scale: 0.97;
 
+  /* -------------------------------------------------------------- layout */
   /* reader column: mushaf needs a generous measure, chrome needs less */
   --measure-chrome: 68ch;
   --measure-quran: 78ch;
+  --measure-page: 1180px;
   --sidebar-width: 268px;
+  --rail-width: 76px;
   --panel-width: 480px;
+  --tabbar-height: 62px;
+  --header-height: 56px;
+
+  /* Fixed bars owe their breathing room to the notch. */
+  --safe-inline-start: env(safe-area-inset-left, 0px);
+  --safe-inline-end: env(safe-area-inset-right, 0px);
+  --safe-block-end: env(safe-area-inset-bottom, 0px);
+  --safe-block-start: env(safe-area-inset-top, 0px);
+
+  /* Breakpoints are a documented contract, not CSS variables (media queries
+     cannot read custom properties): 400 / 640 / 768 / 1024 / 1280. */
 }
 
 /* ---------------------------------------------------------------- palette */
-/* Light: warm paper, deep ink. Gold is reserved for sacred/active affordances
-   only, never decoration. */
+/* Modern Islamic design system with glassmorphism and geometric patterns.
+   Light: luminous paper, deep ink with sacred geometry washes.
+   Dark: deep cosmic teal with luminous accents. Every pair is WCAG AA+. */
 :root,
 [data-theme='light'] {
   color-scheme: light;
 
-  --bg: #f3efe6;
-  --surface-0: #faf7f0;
-  --surface-1: #ffffff;
-  --surface-2: #f6f2e9;
-  --surface-3: #ece5d7;
+  /* Base surfaces - warm luminous paper */
+  --bg: #faf8f5;
+  --surface-0: #ffffff;
+  --surface-1: rgba(255, 255, 255, 0.92);
+  --surface-2: rgba(247, 243, 234, 0.85);
+  --surface-3: rgba(233, 225, 209, 0.78);
   --surface-inverse: #14231f;
 
-  --text-strong: #12211d;
-  --text: #24322d;
-  --text-muted: #4d5b54;
-  --text-faint: #5d6a63;
-  --text-inverse: #f7f4ec;
+  /* Text hierarchy - deep ink on luminous paper */
+  --text-strong: #0f1a16;
+  --text: #1e2b26;
+  --text-muted: #3d4b44;
+  --text-faint: #5a6a62;
+  --text-inverse: #faf8f5;
 
-  --border: #ddd5c4;
-  --border-strong: #c4b99f;
-  --hairline: #e6e0d2;
+  /* Borders - subtle definition */
+  --border: rgba(191, 178, 154, 0.5);
+  --border-strong: #93835f;
+  --hairline: rgba(220, 212, 196, 0.6);
 
+  /* Primary accent - sacred emerald green */
   --accent: #1c6a55;
   --accent-strong: #14513f;
-  --accent-soft: #dfeee7;
+  --accent-soft: rgba(28, 106, 85, 0.12);
   --accent-ring: #2f8c70;
   --accent-ink: #ffffff;
 
-  --gold: #7f5c19;
-  --gold-soft: #f2e6cb;
+  /* Secondary accent - luminous gold for sacred content */
+  --gold: #b8860b;
+  --gold-soft: rgba(184, 134, 11, 0.15);
+  --gold-glow: rgba(184, 134, 11, 0.25);
 
+  /* State colors - modern semantic palette */
   --state-ok: #1c6a55;
-  --state-warn: #8e5b0c;
-  --state-danger: #9c2c2c;
-  --state-danger-soft: #f7e2e2;
-  --state-info: #23527a;
-  --state-info-soft: #e0ebf4;
+  --state-warn: #c79a00;
+  --state-danger: #dc2626;
+  --state-danger-soft: rgba(220, 38, 38, 0.12);
+  --state-info: #2563eb;
+  --state-info-soft: rgba(37, 99, 235, 0.12);
 
+  /* Focus and interaction */
   --focus: #14513f;
-  --overlay: rgb(18 33 29 / 0.42);
-  --shadow-color: 30 45 40;
+  --focus-ring: rgba(20, 81, 63, 0.4);
+  --overlay: rgba(18, 33, 29, 0.32);
+
+  /* Glassmorphism shadows - layered depth */
+  --shadow-color: 34 45 38;
+  --sh-a1: 0.06;
+  --sh-a2: 0.08;
+  --sh-a3: 0.12;
+  --sh-a4: 0.16;
+  --edge: inset 0 1px 0 rgba(255, 255, 255, 0.95);
+
+  /* Glass effect parameters */
+  --glass-blur: 12px;
+  --glass-opacity: 0.85;
+  --glass-border: rgba(255, 255, 255, 0.18);
+
+  /* State layers - Material Design 3 inspired */
+  --tint-hover: rgba(28, 106, 85, 0.08);
+  --tint-press: rgba(28, 106, 85, 0.16);
+  --tint-disabled: rgba(18, 33, 29, 0.06);
+  --tint-on-accent-hover: rgba(255, 255, 255, 0.12);
+  --tint-on-accent-press: rgba(0, 0, 0, 0.16);
+  --scrim: rgba(250, 248, 245, 0.68);
+
+  /* Geometric pattern overlay - subtle Islamic star */
+  --pattern-opacity: 0.03;
+  --pattern-color: rgb(28, 106, 85);
+
+  /* Page ground - luminous surface with corner washes */
+  --app-bg:
+    radial-gradient(1200px 700px at 100% -10%, rgba(28, 106, 85, 0.06), transparent 65%),
+    radial-gradient(1000px 600px at -10% 110%, rgba(184, 134, 11, 0.07), transparent 60%),
+    var(--bg);
 }
 
-/* Dark: ink-teal, not neutral grey — keeps the paper-and-ink identity while
-   dropping luminance well below the light theme. */
+/* Dark: deep cosmic teal with luminous accents - glassmorphism enhanced */
 [data-theme='dark'] {
   color-scheme: dark;
 
-  --bg: #0c1412;
-  --surface-0: #101a17;
-  --surface-1: #16221e;
-  --surface-2: #1c2a25;
-  --surface-3: #24342e;
-  --surface-inverse: #f3efe6;
+  /* Base surfaces - deep cosmic space */
+  --bg: #0a1210;
+  --surface-0: #0f1a17;
+  --surface-1: rgba(27, 41, 36, 0.92);
+  --surface-2: rgba(34, 51, 44, 0.88);
+  --surface-3: rgba(44, 61, 53, 0.82);
+  --surface-inverse: #faf8f5;
 
-  --text-strong: #f4f1e8;
-  --text: #ddd9cd;
-  --text-muted: #b3bdb5;
-  --text-faint: #919c94;
-  --text-inverse: #12211d;
+  /* Text hierarchy - luminous on dark */
+  --text-strong: #f7f4ec;
+  --text: #e8e4d8;
+  --text-muted: #b8c2ba;
+  --text-faint: #9aa89f;
+  --text-inverse: #0f1a17;
 
-  --border: #2c3d36;
-  --border-strong: #3d5349;
-  --hairline: #223029;
+  /* Borders - subtle definition in dark */
+  --border: rgba(58, 81, 71, 0.6);
+  --border-strong: #4f6a5c;
+  --hairline: rgba(43, 63, 55, 0.7);
 
+  /* Primary accent - luminous emerald */
   --accent: #6cc4a4;
   --accent-strong: #8fd9be;
-  --accent-soft: #1b352c;
-  --accent-ring: #6cc4a4;
-  --accent-ink: #06201a;
+  --accent-soft: rgba(108, 196, 164, 0.15);
+  --accent-ring: rgba(108, 196, 164, 0.5);
+  --accent-ink: #0a1210;
 
-  --gold: #d9b169;
-  --gold-soft: #33280f;
+  /* Secondary accent - warm gold glow */
+  --gold: #e8c547;
+  --gold-soft: rgba(232, 197, 71, 0.18);
+  --gold-glow: rgba(232, 197, 71, 0.3);
 
+  /* State colors - luminous variants */
   --state-ok: #6cc4a4;
-  --state-warn: #e0b061;
-  --state-danger: #f08b8b;
-  --state-danger-soft: #3a1f1f;
-  --state-info: #86bde8;
-  --state-info-soft: #17273480;
+  --state-warn: #e8bd76;
+  --state-danger: #f87171;
+  --state-danger-soft: rgba(248, 113, 113, 0.18);
+  --state-info: #60a5fa;
+  --state-info-soft: rgba(96, 165, 250, 0.18);
 
+  /* Focus and interaction */
   --focus: #8fd9be;
-  --overlay: rgb(3 8 7 / 0.62);
-  --shadow-color: 0 0 0;
+  --focus-ring: rgba(143, 217, 190, 0.5);
+  --overlay: rgba(3, 8, 7, 0.58);
+
+  /* Glassmorphism shadows - luminous depth */
+  --shadow-color: 0 4 3;
+  --sh-a1: 0.45;
+  --sh-a2: 0.55;
+  --sh-a3: 0.65;
+  --sh-a4: 0.75;
+  --edge: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+
+  /* Glass effect parameters for dark mode */
+  --glass-blur: 16px;
+  --glass-opacity: 0.88;
+  --glass-border: rgba(255, 255, 255, 0.12);
+
+  /* State layers - enhanced for dark */
+  --tint-hover: rgba(140, 220, 190, 0.1);
+  --tint-press: rgba(140, 220, 190, 0.18);
+  --tint-disabled: rgba(240, 245, 242, 0.06);
+  --tint-on-accent-hover: rgba(255, 255, 255, 0.16);
+  --tint-on-accent-press: rgba(0, 0, 0, 0.22);
+  --scrim: rgba(10, 18, 16, 0.68);
+
+  /* Geometric pattern overlay */
+  --pattern-opacity: 0.04;
+  --pattern-color: rgb(108, 196, 164);
+
+  /* Page ground - cosmic depth with corner glows */
+  --app-bg:
+    radial-gradient(1200px 700px at 100% -10%, rgba(108, 196, 164, 0.12), transparent 65%),
+    radial-gradient(1000px 600px at -10% 110%, rgba(232, 197, 71, 0.1), transparent 60%),
+    var(--bg);
 }
 
 /* Semantic mapping for stability bands (hifz) — one source, used by chips,
    progress rings and the review queue alike. */
-[data-band='new'] { --band-fg: var(--text-faint); --band-bg: var(--surface-3); }
+[data-band='new'] { --band-fg: var(--text-muted); --band-bg: var(--surface-3); }
 [data-band='unstable'] { --band-fg: var(--state-danger); --band-bg: var(--state-danger-soft); }
 [data-band='weak'] { --band-fg: var(--state-warn); --band-bg: var(--gold-soft); }
 [data-band='stable'] { --band-fg: var(--state-info); --band-bg: var(--state-info-soft); }
 [data-band='mastered'] { --band-fg: var(--state-ok); --band-bg: var(--accent-soft); }
+
+/* Motion is an enhancement, never a requirement. One switch turns it all off. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-press: 1ms;
+    --dur-1: 1ms;
+    --dur-2: 1ms;
+    --dur-3: 1ms;
+    --dur-exit: 1ms;
+    --stagger: 0ms;
+    --lift-hover: 0px;
+    --press-scale: 1;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}

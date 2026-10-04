@@ -121,11 +121,22 @@ interface SampleQueries {
   hasAnyAyah: boolean;
 }
 
-export function SearchScreen(_props: RouteProps) {
+export function SearchScreen({ query: routeQuery }: RouteProps) {
   const { tr, gateway, info } = useApp();
-  const [rawQuery, setRawQuery] = useState('');
+  // `#/discover?q=…` is a real address for a real result list: a shared verse
+  // search, a cross-link from the mutashabihat screen or a browser back has to
+  // land on the answers, not on an empty box. The screen used to take `RouteProps`
+  // and ignore it, which made every deep link into an idle form.
+  const requested = (routeQuery.q ?? '').trim();
+  const [rawQuery, setRawQuery] = useState(requested);
   const [field, setField] = useState<FieldChoice>('all');
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(requested);
+
+  useEffect(() => {
+    // Only when the address says something new. A dependency on `requested` alone
+    // means typing — which changes the box, not the URL — cannot be overwritten.
+    setRawQuery(requested);
+  }, [requested]);
 
   useEffect(() => {
     const id = window.setTimeout(() => setQuery(rawQuery.trim()), DEBOUNCE_MS);

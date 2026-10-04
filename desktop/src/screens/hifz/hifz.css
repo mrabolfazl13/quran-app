@@ -32,6 +32,7 @@
 .hifz-step {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--sp-2);
   padding: var(--sp-1) var(--sp-2);
   border-radius: var(--radius-1);
@@ -49,6 +50,14 @@
   min-width: 1.4em;
   text-align: center;
   color: var(--text-faint);
+}
+
+/* One labelled sparkline per memory axis, kept together so the pair reads as a
+   single row's answer rather than two unrelated charts. */
+.hifz-axis-spark {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
 }
 
 .recite-input {
@@ -73,6 +82,27 @@
 }
 .cue-box__text {
   font-size: var(--mushaf-size);
+}
+
+/* A meaning cue is licensed prose, so it reads as a quote card rather than as
+   revelation: UI face, its own surface, and a measure that survives 360px. */
+.cue-box__meaning {
+  margin-block: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border-inline-start: 3px solid var(--accent);
+  border-radius: var(--radius-2);
+  background: var(--accent-soft);
+  color: var(--text-strong);
+}
+.cue-box__meaning-text {
+  font-size: var(--fs-500);
+  line-height: var(--lh-ui);
+  overflow-wrap: break-word;
+}
+.cue-box__meaning-source {
+  margin-top: var(--sp-2);
+  font-size: var(--fs-100);
+  flex-wrap: wrap;
 }
 
 /* Word alignment over the stored attempt — each token keeps its own mark. */

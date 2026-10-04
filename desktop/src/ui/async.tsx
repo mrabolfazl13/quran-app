@@ -11,6 +11,9 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { useApp } from '../app/app-state';
 import { gatewayStore } from './gatewayText';
+import { IconAlert, IconInbox, IconRefresh } from './icons';
+import { Skeleton, Spinner } from './primitives';
+import './ui.css';
 
 export type AsyncStatus = 'loading' | 'ready' | 'error';
 
@@ -96,28 +99,49 @@ export function StateBoundary<T>({
   if (gatewayError) {
     return (
       <div className="state state--error" role="alert">
+        <IconAlert size={28} className="state__icon" />
         <h3>{offlineTitle ?? tr('ذخیره‌گاه در دسترس نیست', 'Storage is unavailable')}</h3>
         <p className="muted">{messageOf(gatewayError)}</p>
-        <button type="button" className="btn" onClick={() => void reload()}>
-          {tr('تلاش دوباره', 'Try again')}
-        </button>
+        <div className="state__actions">
+          <button type="button" className="btn btn--primary" onClick={() => void reload()}>
+            <span className="btn__icon">
+              <IconRefresh />
+            </span>
+            {tr('تلاش دوباره', 'Try again')}
+          </button>
+        </div>
       </div>
     );
   }
 
   if (state.status === 'loading') {
-    return <>{skeleton ?? <div className="state state--loading" role="status" aria-busy="true">{tr('در حال بارگذاری…', 'Loading…')}</div>}</>;
+    return (
+      <>
+        {skeleton ?? (
+          <div className="state state--loading" role="status" aria-busy="true">
+            <Spinner label={tr('در حال بارگذاری…', 'Loading…')} />
+            <Skeleton lines={3} />
+          </div>
+        )}
+      </>
+    );
   }
 
   if (state.status === 'error') {
     return (
       <div className="state state--error" role="alert">
+        <IconAlert size={28} className="state__icon" />
         <h3>{tr('این بخش باز نشد', 'This section could not load')}</h3>
         <p className="muted mono">{messageOf(state.error)}</p>
         {onRetry ? (
-          <button type="button" className="btn" onClick={onRetry}>
-            {tr('تلاش دوباره', 'Try again')}
-          </button>
+          <div className="state__actions">
+            <button type="button" className="btn btn--primary" onClick={onRetry}>
+              <span className="btn__icon">
+                <IconRefresh />
+              </span>
+              {tr('تلاش دوباره', 'Try again')}
+            </button>
+          </div>
         ) : null}
       </div>
     );
@@ -127,9 +151,10 @@ export function StateBoundary<T>({
   if (isEmpty(value)) {
     return (
       <div className="state state--empty">
+        <IconInbox size={28} className="state__icon" />
         <h3>{emptyTitle}</h3>
         {emptyBody ? <p className="muted">{emptyBody}</p> : null}
-        {emptyAction}
+        {emptyAction ? <div className="state__actions">{emptyAction}</div> : null}
       </div>
     );
   }

@@ -10,7 +10,7 @@
  * `hifzTransitions` rows beside it, empty when none exist.
  */
 import { useState } from 'react';
-import type { AnchorWord, HifzItem, HifzItemStatus, HifzSegment, HifzTransition, RecallAttempt } from '@quran/core';
+import type { AnchorWord, HifzItem, HifzItemStatus, HifzSegment, HifzTransition, RecallAttempt, VerseKey } from '@quran/core';
 import type { SegmentationOutcome } from '../../engine/hifzEngine';
 import { useApp } from '../../app/app-state';
 import { StateBoundary, useAsync } from '../../ui/async';
@@ -100,10 +100,16 @@ function AddPanel({ onAdded }: { onAdded: () => void }) {
     setBusy(true);
     setError(null);
     try {
-      const exists = await gateway.ayah(`${parsed.chapter}:${parsed.verse}`);
-      if (!exists) throw new Error(tr(`آیهٔ ${parsed.chapter}:${parsed.verse} در محتوا نیست`, `Ayah ${parsed.chapter}:${parsed.verse} is not in the installed content`));
-      await gateway.addHifzItem(`${parsed.chapter}:${parsed.verse}`);
-      setMessage(tr(`آیهٔ ${parsed.chapter}:${parsed.verse} افزوده شد`, `Added ${parsed.chapter}:${parsed.verse}`));
+      const key = `${parsed.chapter}:${parsed.verse}` as VerseKey;
+      const exists = await gateway.ayah(key);
+      if (!exists) throw new Error(tr(`آیهٔ ${key} در محتوا نیست`, `Ayah ${key} is not in the installed content`));
+      const live = (await gateway.hifzItems()).some((item) => item.verseKey === key && item.status !== 'dropped');
+      await gateway.addHifzItem(key);
+      setMessage(
+        live
+          ? tr(`آیهٔ ${key} از پیش در مجموعه بود`, `Ayah ${key} was already in the set`)
+          : tr(`آیهٔ ${key} افزوده شد`, `Added ${key}`),
+      );
       setSingle('');
       onAdded();
     } catch (cause) {
@@ -129,8 +135,24 @@ function AddPanel({ onAdded }: { onAdded: () => void }) {
       if (b > ayahs.length) {
         throw new Error(tr(`سورهٔ ${chapter} تنها ${ayahs.length} آیه دارد`, `Surah ${chapter} has only ${ayahs.length} ayat`));
       }
-      for (let v = a; v <= b; v += 1) await gateway.addHifzItem(`${chapter}:${v}`);
-      setMessage(tr(`${b - a + 1} آیه افزوده شد`, `Added ${b - a + 1} ayat`));
+      // Enrolment is idempotent, so the count the screen reports must be the
+      // number that actually entered the plan — not the width of the range.
+      const already = new Set((await gateway.hifzItems()).map((item) => item.verseKey));
+      let added = 0;
+      for (let v = a; v <= b; v += 1) {
+        const key = `${chapter}:${v}` as VerseKey;
+        await gateway.addHifzItem(key);
+        if (!already.has(key)) added += 1;
+      }
+      const skipped = b - a + 1 - added;
+      setMessage(
+        skipped === 0
+          ? tr(`${added} آیه افزوده شد`, `Added ${added} ayat`)
+          : tr(
+              `${added} آیه افزوده شد؛ ${skipped} تای دیگر از پیش در مجموعه بودند`,
+              `Added ${added} ayat; ${skipped} were already in the set`,
+            ),
+      );
       setSurah(''); setFrom(''); setTo('');
       onAdded();
     } catch (cause) {
@@ -328,7 +350,17 @@ function Fingerprint({ itemId }: { itemId: string }) {
                       <span className="num faint">{s.position + 1}.</span>{' '}
                       <span className="quran-text" dir="rtl">{s.text}</span>{' '}
                       <Chip tone="neutral">{tr('واژه', 'words')} <NumRange className="num" from={s.fromWord} to={s.toWord} /></Chip>
-                      {s.meaningFa ? <span className="muted rtl-iso"> {s.meaningFa}</span> : null}
+                      {s.meaning ? (
+                        <>
+                          {' '}
+                          {/* the gloss is only shown with the pack it came from: an
+                              unattributed meaning of revealed text is not usable */}
+                          <span className="muted" dir={s.meaning.lang === 'en' ? 'ltr' : 'rtl'}>
+                            {s.meaning.text}
+                          </span>{' '}
+                          <Chip tone="neutral">{s.meaning.packId}</Chip>
+                        </>
+                      ) : null}
                     </li>
                   ))}
                 </ul>
@@ -392,14 +424,17 @@ function Fingerprint({ itemId }: { itemId: string }) {
               </p>
             ) : (
               <ul className="list mono">
+                {/* Each line leads with its ayah: `position`, `word_position` and
+                    `to_word` all restart per ayah, so a bare number cannot say
+                    which of the item's ayat the row belongs to. */}
                 {value.storedSegments.map((s) => (
-                  <li key={s.id}>segment {s.position}: <NumRange from={s.fromWord} to={s.toWord} /> · {tr('پایداری', 'stability')} {s.stability} · {s.text}</li>
+                  <li key={s.id}>{s.verseKey} · segment {s.position}: <NumRange from={s.fromWord} to={s.toWord} /> · {tr('پایداری', 'stability')} {s.stability} · {s.text}</li>
                 ))}
                 {value.storedAnchors.map((a) => (
-                  <li key={a.id}>anchor w{a.wordPosition} ({a.role}) · {tr('پایداری', 'stability')} {a.stability} · {a.text}</li>
+                  <li key={a.id}>{a.verseKey} · anchor w{a.wordPosition} ({a.role}) · {tr('پایداری', 'stability')} {a.stability} · {a.text}</li>
                 ))}
                 {value.storedTransitions.map((t) => (
-                  <li key={t.id}>transition {t.kind} → {t.toWord}{t.toVerseKey ? ` (${t.toVerseKey})` : ''} · ✓{t.successCount} ✗{t.failureCount} · {t.lastPracticedAt ?? '—'}</li>
+                  <li key={t.id}>{t.verseKey} · transition {t.kind} → {t.toWord}{t.toVerseKey ? ` (${t.toVerseKey})` : ''} · ✓{t.successCount} ✗{t.failureCount} · {t.lastPracticedAt ?? '—'}</li>
                 ))}
               </ul>
             )}

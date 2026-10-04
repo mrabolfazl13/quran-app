@@ -1,21 +1,53 @@
 /**
- * The application shell: sidebar, header, route outlet.
+ * The application shell: navigation, header, route outlet.
  *
  * It owns exactly two things — where storage came from (the badge in the header
  * is the only place the dev/shipped distinction is printed) and which screen is
  * mounted. Screens never render their own chrome, so the nav cannot drift
  * between areas.
+ *
+ * Nav geometry is the shell's other job: the same five destinations are a bottom
+ * tab bar on a phone, an icon rail on a tablet and a labelled sidebar on a
+ * desktop (`app/shell.css`). Icons live here rather than in `app/registry.ts`
+ * because areas are authored by other hands and must not have to know the icon
+ * family; an unknown section falls back to a neutral glyph instead of crashing.
  */
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react';
 
 import { useApp } from './app-state';
 import { shellName } from './labels';
 import { NAV, ROUTES } from './registry';
-import { navigate, useRoute } from './router';
+import { navigate, useRoute, type NavItem } from './router';
 import { StateBoundary, useAsync } from '../ui/async';
 import { gatewayLabel, gatewayStore } from '../ui/gatewayText';
-import { Chip } from '../ui/primitives';
+import {
+  IconBookOpen,
+  IconCompass,
+  IconContrast,
+  IconHome,
+  IconLayers,
+  IconMonitor,
+  IconMoon,
+  IconMore,
+  IconSun,
+  IconUser,
+  type IconProps,
+} from '../ui/icons';
+import { Chip, splitNavItems } from '../ui/primitives';
 import './shell.css';
+
+/** section → glyph. Keyed by section, not by path, so sub-routes stay marked. */
+const NAV_ICONS: Record<string, ComponentType<IconProps>> = {
+  home: IconHome,
+  quran: IconBookOpen,
+  hifz: IconMoon,
+  discover: IconCompass,
+  me: IconUser,
+};
+
+function navIcon(section: string): ComponentType<IconProps> {
+  return NAV_ICONS[section] ?? IconLayers;
+}
 
 function OnlineChip() {
   const { tr } = useApp();
@@ -39,8 +71,40 @@ function OnlineChip() {
   );
 }
 
+function NavEntry({
+  item,
+  active,
+  onNavigate,
+}: {
+  item: NavItem;
+  active: boolean;
+  onNavigate: (to: string) => void;
+}) {
+  const { tr } = useApp();
+  const Icon = navIcon(item.section);
+  return (
+    <a
+      className={`navlink ${active ? 'is-active' : ''}`}
+      href={`#${item.to}`}
+      aria-current={active ? 'page' : undefined}
+      onClick={(event) => {
+        if (event.metaKey || event.ctrlKey) return;
+        event.preventDefault();
+        onNavigate(item.to);
+      }}
+    >
+      <span className="navlink__icon" aria-hidden="true">
+        <Icon size={22} />
+      </span>
+      <span className="navlink__label">{item.label(tr)}</span>
+    </a>
+  );
+}
+
 function HeaderRight() {
   const { tr, themePref, setThemePref, lang, setLang, info } = useApp();
+  const ThemeIcon = themePref === 'dark' ? IconContrast : themePref === 'light' ? IconSun : IconMonitor;
+  const themeName = tr(`پوسته: ${themePref} — برای تغییر کلیک کنید`, `Theme: ${themePref} — click to change`);
   return (
     <div className="header__right">
       <OnlineChip />
@@ -53,23 +117,26 @@ function HeaderRight() {
         </Chip>
       ) : null}
       {/*
-        Both buttons are icon-only, so `title` alone gives a screen reader
-        nothing: the name lives in `aria-label` (both languages, same `tr`), and
-        the global `:focus-visible` ring in `ui/ui.css` still paints because
-        neither button overrides `outline`/`box-shadow`.
+        Both controls are icon-or-letter only, so `title` alone gives a screen
+        reader nothing: the name lives in `aria-label` (both languages, same
+        `tr`), the glyph itself is `aria-hidden`, and the global
+        `:focus-visible` ring in `ui/ui.css` still paints because neither
+        button overrides `outline`/`box-shadow`.
       */}
       <button
         type="button"
-        className="btn btn--ghost"
+        className="btn btn--ghost btn--icon"
         onClick={() => setThemePref(themePref === 'dark' ? 'light' : themePref === 'light' ? 'system' : 'dark')}
         aria-label={tr('تغییر پوسته', 'Change theme')}
-        title={tr(`پوسته: ${themePref} — برای تغییر کلیک کنید`, `Theme: ${themePref} — click to change`)}
+        title={themeName}
       >
-        <span aria-hidden="true">{themePref === 'dark' ? '◐' : themePref === 'light' ? '◑' : '◒'}</span>
+        <span className="navlink__icon" aria-hidden="true">
+          <ThemeIcon size={20} />
+        </span>
       </button>
       <button
         type="button"
-        className="btn btn--ghost"
+        className="btn btn--ghost btn--icon"
         onClick={() => setLang(lang === 'fa' ? 'en' : 'fa')}
         aria-label={
           lang === 'fa'
@@ -78,6 +145,7 @@ function HeaderRight() {
         }
         title={tr('زبان رابط: فارسی / English', 'Interface language: فارسی / English')}
       >
+        {/* Two letters, not a pictograph: the glyph IS the label here. */}
         <span aria-hidden="true">{lang === 'fa' ? 'EN' : 'فا'}</span>
       </button>
     </div>
@@ -86,25 +154,44 @@ function HeaderRight() {
 
 function Sidebar({ activeSection }: { activeSection: string }) {
   const { tr } = useApp();
+  // Five destinations fit the phone tab bar; a sixth moves into «بیشتر» rather
+  // than shrinking the tap targets below 44px.
+  const { tabs, overflow } = useMemo(() => splitNavItems([...NAV]), []);
+  const overflowActive = overflow.some((item) => item.section === activeSection);
+  const go = (to: string) => navigate(to);
+
   return (
     <nav className="sidebar" aria-label={tr('بخش‌ها', 'Sections')}>
-      <ul>
-        {NAV.map((item) => (
+      <ul className="navlist">
+        {tabs.map((item) => (
           <li key={item.section}>
-            <a
-              className={`navlink ${item.section === activeSection ? 'is-active' : ''}`}
-              href={`#${item.to}`}
-              aria-current={item.section === activeSection ? 'page' : undefined}
-              onClick={(event) => {
-                if (event.metaKey || event.ctrlKey) return;
-                event.preventDefault();
-                navigate(item.to);
-              }}
-            >
-              {item.label(tr)}
-            </a>
+            <NavEntry item={item} active={item.section === activeSection} onNavigate={go} />
           </li>
         ))}
+        {overflow.length ? (
+          <li className="navmore">
+            {/* Uncontrolled: the browser owns open/close, so back-forward and
+                Escape stay predictable; an active child only keeps the control
+                marked, never forces the sheet open. */}
+            <details>
+              <summary className={overflowActive ? 'is-active' : undefined}>
+                <span className="navmore__btn">
+                  <span className="navlink__icon" aria-hidden="true">
+                    <IconMore size={22} />
+                  </span>
+                  <span className="navlink__label">{tr('بیشتر', 'More')}</span>
+                </span>
+              </summary>
+              <ul className="navmore__list">
+                {overflow.map((item) => (
+                  <li key={item.section}>
+                    <NavEntry item={item} active={item.section === activeSection} onNavigate={go} />
+                  </li>
+                ))}
+              </ul>
+            </details>
+          </li>
+        ) : null}
       </ul>
     </nav>
   );
