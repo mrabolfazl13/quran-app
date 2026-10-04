@@ -15,6 +15,8 @@
  * Shared
  * ------------------------------------------------------------------ */
 
+import type { RecallMode } from '../contracts/hifz';
+
 /** Seconds-per-hour helpers for interval arithmetic (no clock reads). */
 export const MS_PER_DAY = 86_400_000;
 
@@ -121,6 +123,26 @@ export const POSITIONAL_THIRDS = 3;
 
 /** Placeholder rendered where a missing-word probe blanks a word. */
 export const MISSING_WORD_PLACEHOLDER = '⟪……⟫';
+
+/* ---- meaning-axis probes (recall.ts) ---- */
+
+/**
+ * How many opening words a `concept-cue` probe expects: the learner hears the
+ * meaning of the previous ayah and must produce how the next one starts. Shorter
+ * than a full ayah on purpose — the chain link is what is being trained.
+ */
+export const CONCEPT_CUE_EXPECTED_WORDS = 4;
+
+/**
+ * Content pack the per-word English glosses ship in (`ayah_word.translation_en`).
+ * Only used as the default `packId` label when a caller asks the segmenter to join
+ * word glosses; the caller always decides the language. No engine code reads a
+ * database with this id — it is a label the caller's own source carries.
+ */
+export const WORD_GLOSS_PACK_ID = 'word-data';
+
+/** Language a joined word-gloss chunk is written in (`ayah_word.translation_en`). */
+export const WORD_GLOSS_LANG = 'en';
 
 /* ------------------------------------------------------------------ *
  * Classification (classify.ts) — see docs/hifz-engine.md
@@ -236,10 +258,46 @@ export const STABILITY_INTERVAL_GAIN = 1.0;
 export const MAX_INTERVAL_DAYS = 45;
 
 /* ------------------------------------------------------------------ *
+ * Dual-axis stability (stability.ts) — form vs meaning
+ * ------------------------------------------------------------------ */
+
+/**
+ * EWMA rate an item's axis stability moves toward the accuracy of a graded
+ * attempt on that axis. Engineering heuristic, chosen bounded and monotone like
+ * every other number in this file; NOT validated by memory research.
+ */
+export const AXIS_LEARN_RATE = 0.3;
+
+/**
+ * Value an axis is measured from before its first attempt. Zero: an axis nobody
+ * has tested is not "half memorised", it is untested. The item-level composite
+ * only reads the meaning axis at all when a licensed meaning exists to test it
+ * (see `computeStabilityByAxis`).
+ */
+export const AXIS_UNTESTED_STABILITY = 0;
+
+/**
+ * A segment's `meaningStability` is null (never "0") until a meaning attempt
+ * lands, so a report can tell "no data" apart from "tested and failed". This is
+ * the base the first meaning attempt's EWMA is measured against.
+ */
+export const SEGMENT_MEANING_BASE = AXIS_UNTESTED_STABILITY;
+
+/* ------------------------------------------------------------------ *
  * Review scheduling (review.ts) — see docs/review-algorithm.md
  * ------------------------------------------------------------------ */
 
-/** Review priority weights; must sum to 1.00. */
+/**
+ * Review priority weights. The nine original factors sum to exactly 1.00 and
+ * their values are the ones documented in `docs/review-algorithm.md`: an item
+ * with no meaning lag must score the same today as it scored before the meaning
+ * axis existed, so adding a tenth factor may not move the other nine.
+ *
+ * `meaning-gap` is applied as a bounded **uplift** on the headroom the nine left
+ * (`gap × 0.12 × (1 − priority)`), not as a slice taken out of them: it can only
+ * raise an item's urgency, the total stays inside 0..1 without clamping, and no
+ * documented factor is silently re-weighted.
+ */
 export const REVIEW_WEIGHTS = {
   'historical-errors': 0.16,
   'weak-segments': 0.16,
@@ -250,6 +308,9 @@ export const REVIEW_WEIGHTS = {
   'confusion-rate': 0.1,
   'group-membership': 0.06,
   band: 0.04,
+  /** How far the meaning axis lags behind the form axis. 0 when no licensed
+   * meaning exists for the item, because an untestable axis is not a gap. */
+  'meaning-gap': 0.12,
 } as const;
 
 export type ReviewFactorKey = keyof typeof REVIEW_WEIGHTS;
@@ -271,6 +332,31 @@ export const WEAK_SEGMENT_STABILITY = 0.6;
 
 /** Transitions below this stability count as weak. */
 export const WEAK_TRANSITION_STABILITY = 0.6;
+
+/**
+ * Form-minus-meaning lag at which the `meaning-gap` factor saturates. Below it
+ * the factor scales linearly, so a small lag nudges a review instead of
+ * hijacking the queue.
+ */
+export const MEANING_GAP_SATURATION = 0.6;
+
+/**
+ * Lag the scheduler assumes for an item a licensed meaning covers but whose
+ * meaning axis has never been probed (`meaningStability` is null). It saturates
+ * the factor by design: a whole axis nobody has tested yet is the biggest
+ * possible gap in understanding, and it is the reason meaning drills appear at
+ * all. An item with no licensed meaning gets a gap of 0 instead — nothing to
+ * test is not a failure to know.
+ */
+export const MEANING_UNTESTED_GAP = 1;
+
+/**
+ * Lag at or below which the scheduler prefers `concept-cue` over
+ * `meaning-to-arabic` when the previous ayah also has a licensed meaning: a
+ * nearly-caught-up axis is trained as a chain, a badly lagging one is trained
+ * as a direct meaning→Arabic binding first.
+ */
+export const MEANING_CONCEPT_CUE_MAX_GAP = 0.5;
 
 /** Confusion-type errors at which the confusion factor saturates. */
 export const CONFUSION_SATURATION_ERRORS = 3;
@@ -332,8 +418,12 @@ export const PROPOSE_MIN_TRIGGERS = 2;
 /**
  * Per-attempt cost by recall mode. Deliberately explicit so
  * `DailyPlan.estimatedMinutes` is a sum of real steps, never a constant.
+ *
+ * Keyed by `RecallMode`, not by `string`: a mode the scheduler can pick but this
+ * table cannot price would silently cost nothing, and the compiler is the only
+ * reviewer that never forgets to check.
  */
-export const MODE_COST_SECONDS: Readonly<Record<string, number>> = {
+export const MODE_COST_SECONDS: Readonly<Record<RecallMode, number>> = {
   segment: 12,
   opening: 10,
   middle: 10,
@@ -349,6 +439,10 @@ export const MODE_COST_SECONDS: Readonly<Record<string, number>> = {
   'audio-recall': 35,
   'full-ayah': 30,
   'full-sequence': 45,
+  // Priced like the form probe of the same span: the reading of the cue is
+  // cheap, producing the Arabic is what takes the time.
+  'meaning-to-arabic': 30,
+  'concept-cue': 18,
 };
 
 /** Cost of the first exposure to a new ayah (listen + read + imitate). */
@@ -372,17 +466,39 @@ export const STEP_OVERHEAD_SECONDS = 5;
 /** Assessment step cost, on top of the mode cost of the step itself. */
 export const ASSESSMENT_STEP_SECONDS = 25;
 
-/** Session phases and the modes they use, in order (session.ts). */
+/**
+ * Session phases and the modes they use, in order (session.ts). The two meaning
+ * phases only emit steps when a licensed meaning actually covers the ayah — with
+ * no meaning data installed the session builds exactly the steps it built before
+ * the meaning axis existed.
+ */
 export const SESSION_PHASES: readonly string[] = [
   'warm-up',
+  'meaning-introduction',
   'new-learning',
   'progressive-recall',
+  'meaning-drill',
   'transition-training',
   'similar-ayah-drill',
   'reverse',
   'random',
   'assessment',
 ];
+
+/** Meaning drills touch at most this many items per session. */
+export const MEANING_DRILL_ITEM_CAP = 4;
+
+/**
+ * Smallest form-minus-meaning lag that earns one of those scarce slots.
+ *
+ * A lag below this is not distinguishable from measurement noise: one graded
+ * attempt moves an axis by at most `AXIS_LEARN_RATE` of the remaining distance,
+ * so a 0.05 gap is well inside what a single recitation could produce by
+ * accident. Drilling it would spend session time on a difference the engine
+ * cannot honestly claim exists. The scheduler still *reports* such a lag — this
+ * gates session slots, not the priority factor.
+ */
+export const MEANING_DRILL_MIN_LAG = 0.1;
 
 /** EWMA rate for transition/segment stability updates from a single attempt. */
 export const LEARN_RATE = 0.35;

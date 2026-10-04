@@ -7,11 +7,29 @@
  *
  * Pure and deterministic: `now` is always an argument, never a clock read, so a
  * Dart port produces the same numbers.
+ *
+ * Two axes are maintained, because they are two memories: `formStability` from
+ * Arabic-cued-by-Arabic attempts, `meaningStability` from meaning-cued attempts.
+ * `computeStability` scores one history; `computeStabilityByAxis` scores both and
+ * publishes the weaker as the composite. See `RECALL_DIMENSION` in the contracts
+ * for why a meaning recitation may never lift the form number.
  */
 
-import type { ErrorKind, RecallAttempt, RecallMode, StabilityBand } from '../contracts/hifz';
+import type {
+  DetectedError,
+  ErrorKind,
+  HifzSegment,
+  HifzTransition,
+  RecallAttempt,
+  RecallDimension,
+  RecallMode,
+  StabilityBand,
+} from '../contracts/hifz';
+import { RECALL_DIMENSION } from '../contracts/hifz';
 import {
   ATTEMPT_SATURATION,
+  AXIS_LEARN_RATE,
+  AXIS_UNTESTED_STABILITY,
   BAND_INTERVAL_DAYS,
   DECAY_FLOOR,
   DECAY_HALF_LIFE_DAYS,
@@ -25,6 +43,7 @@ import {
   RECENCY_WEIGHT_DECAY,
   RECENT_WINDOW,
   SCORE_DECIMALS,
+  SEGMENT_MEANING_BASE,
   STABILITY_INTERVAL_GAIN,
   STABLE_MIN_ATTEMPTS,
   STABLE_MIN_STABILITY,
@@ -72,6 +91,13 @@ export interface StabilityAttempt {
   correctWordCount?: number;
   mode?: RecallMode;
   errorKinds?: ErrorKind[];
+  /**
+   * Which axis this attempt scored. `mode` wins when a mode is present, because
+   * the axis is a property of the probe, not of the caller's memory of it.
+   * Attempts with neither are treated as form work — that is every history
+   * recorded before the meaning axis existed.
+   */
+  dimension?: RecallDimension;
 }
 
 export interface StabilityInput {
@@ -81,6 +107,17 @@ export interface StabilityInput {
   /** The item's stored due date; only used for the `isOverdue` state. */
   storedNextReviewAt?: string | null;
   attempts: readonly StabilityAttempt[];
+  /**
+   * The item's stored axis numbers, consulted only for an axis this history has
+   * no attempts for at all.
+   *
+   * Without it a caller that hands over a partial history — a session that only
+   * touched the form axis, a recompute from a page of attempts — would return
+   * `meaningStability: null` (or a form number of 0) and the persist path would
+   * erase a number the learner earned. No evidence about an axis is not evidence
+   * of nothing: the stored value carries forward unchanged.
+   */
+  storedAxes?: AxisStabilities | null;
 }
 
 export interface StabilityResult {
@@ -116,8 +153,32 @@ export function attemptToStabilityAttempt(attempt: RecallAttempt): StabilityAtte
     expectedWordCount: attempt.expectedWordCount,
     correctWordCount: attempt.correctWordCount,
     mode: attempt.mode,
+    dimension: attemptDimension(attempt),
     errorKinds: kinds,
   };
+}
+
+/**
+ * The axis an attempt belongs to.
+ *
+ * The mode decides it (`RECALL_DIMENSION`), so a caller cannot relabel a meaning
+ * drill as verbatim recall; the stored `dimension` is only consulted for a row
+ * whose mode the mode table has never heard of.
+ */
+export function attemptDimension(
+  attempt: { mode?: RecallMode; dimension?: RecallDimension },
+): RecallDimension {
+  if (attempt.mode && attempt.mode in RECALL_DIMENSION) return RECALL_DIMENSION[attempt.mode];
+  return attempt.dimension ?? 'form';
+}
+
+/** Split a history into the two axes it was recorded on, oldest first untouched. */
+export function partitionAttemptsByDimension(
+  attempts: readonly StabilityAttempt[],
+): Record<RecallDimension, StabilityAttempt[]> {
+  const out: Record<RecallDimension, StabilityAttempt[]> = { form: [], meaning: [] };
+  for (const attempt of attempts) out[attemptDimension(attempt)].push(attempt);
+  return out;
 }
 
 function sortByTime(attempts: readonly StabilityAttempt[]): StabilityAttempt[] {
@@ -271,4 +332,313 @@ export function isOverdue(nextReviewAt: string | null, nowIso: string): boolean 
 /** True when the attempt counts as a success everywhere in the engine. */
 export function attemptIsSuccess(attempt: StabilityAttempt): boolean {
   return attempt.accuracy >= SUCCESS_ACCURACY;
+}
+
+/* ------------------------------------------------------------------ *
+ * Two axes: form (sound-shape) and meaning (sense)
+ * ------------------------------------------------------------------ */
+
+/** The two memory axes, in the order every report lists them. */
+export const RECALL_DIMENSIONS: readonly RecallDimension[] = ['form', 'meaning'];
+
+/** The two stored axis numbers of an item, exactly as `hifz_item` keeps them. */
+export interface AxisStabilities {
+  formStability: number;
+  /** Null until a meaning attempt exists — "never tested", not "tested and failed". */
+  meaningStability: number | null;
+}
+
+export interface DualAxisStability {
+  /** Verbatim recall, computed over the `form` attempts only. */
+  form: StabilityResult;
+  /** Conceptual recall, computed over the `meaning` attempts only. */
+  meaning: StabilityResult;
+  /** Form axis number: recomputed, or the stored value when this history has no form attempts. */
+  formStability: number;
+  /**
+   * Meaning axis number. Null only when this history has no meaning attempts
+   * *and* no stored value was supplied — "never tested" stays distinguishable
+   * from "tested and failed" either way.
+   */
+  meaningStability: number | null;
+  /**
+   * Composite the band is read from: the **weaker** of the two axes.
+   *
+   * Not an average and not the form number. An ayah whose sound-shape is perfect
+   * and whose meaning is blank is recited, not memorised, so the composite can
+   * never read better than either axis. An axis that has never been tested at all
+   * is `null` and stands out of the minimum: dropping an item to zero for a probe
+   * the learner was never offered would be a number invented in the other
+   * direction.
+   */
+  stability: number;
+  /** Band of the composite, read from the axis that produced it. */
+  band: StabilityBand;
+  /** The axis the composite is currently reading from. */
+  limitingAxis: RecallDimension;
+  /** How far the meaning axis lags the form axis; 0 while meaning is untested. */
+  gap: number;
+  /** Scheduling fields of the limiting axis, so an item never gets the longer
+   * interval of the axis that is not its weak point. */
+  intervalDays: number;
+  nextReviewAt: string;
+}
+
+/**
+ * The weaker of the two axes. An untested meaning axis (`null`) is not a weak
+ * one, so the form axis stands alone until a meaning attempt lands.
+ */
+export function compositeStability(formStability: number, meaningStability: number | null): number {
+  const form = clamp01(formStability);
+  return meaningStability === null ? form : Math.min(form, clamp01(meaningStability));
+}
+
+/** Which axis is holding the composite down. Ties go to `form`, the stricter reading. */
+export function limitingAxisOf(
+  formStability: number,
+  meaningStability: number | null,
+): RecallDimension {
+  return meaningStability !== null && clamp01(meaningStability) < clamp01(formStability)
+    ? 'meaning'
+    : 'form';
+}
+
+/**
+ * Whole dual-axis computation for one item: the same documented heuristic run
+ * separately over each axis's attempts, then combined by the weaker link.
+ *
+ * `computeStability` stays the single-history function it always was — a caller
+ * that only has one axis's data keeps using it unchanged.
+ */
+export function computeStabilityByAxis(input: StabilityInput): DualAxisStability {
+  const byAxis = partitionAttemptsByDimension(input.attempts);
+  const form = computeStability({ ...input, attempts: byAxis.form });
+  const meaning = computeStability({ ...input, attempts: byAxis.meaning });
+  const stored = input.storedAxes ?? null;
+  // An axis this history never touched keeps what the store already says about
+  // it: no attempts here is not evidence of forgetting, and a caller that hands
+  // over a partial history must not be able to wipe the other axis.
+  const formStability = byAxis.form.length === 0 && stored ? clamp01(stored.formStability) : form.stability;
+  const meaningStability = byAxis.meaning.length === 0 ? (stored ? stored.meaningStability : null) : meaning.stability;
+  const stability = compositeStability(formStability, meaningStability);
+  const limiting = limitingAxisOf(formStability, meaningStability);
+  // Scheduling is read from an axis that has data in *this* history: an axis
+  // carried over from the store has no fresh attempts behind a band or interval.
+  const limitingHasData = limiting === 'meaning' ? byAxis.meaning.length > 0 : byAxis.form.length > 0;
+  const limitingResult = limitingHasData
+    ? limiting === 'meaning'
+      ? meaning
+      : form
+    : byAxis.form.length > 0
+      ? form
+      : meaning;
+  return {
+    form,
+    meaning,
+    formStability: roundScore(formStability),
+    meaningStability,
+    stability,
+    band: limitingResult.band,
+    limitingAxis: limiting,
+    gap: roundScore(
+      Math.max(0, formStability - (meaningStability ?? formStability)),
+    ),
+    intervalDays: limitingResult.intervalDays,
+    nextReviewAt: limitingResult.nextReviewAt,
+  };
+}
+
+export interface AxisUpdateResult extends AxisStabilities {
+  /** Which axis the attempt was graded on. */
+  dimension: RecallDimension;
+  /** Weaker-of-the-two composite, ready to persist as `hifz_item.stability`. */
+  stability: number;
+  limitingAxis: RecallDimension;
+}
+
+/**
+ * Incremental EWMA update of one item's axes from a single graded attempt.
+ *
+ * Only the axis the attempt scored moves, and it moves toward that attempt's
+ * accuracy by `AXIS_LEARN_RATE` of the remaining distance — bounded in 0..1 and
+ * monotone in the accuracy, like every other number here. The other axis is
+ * returned untouched, which is the entire reason the two are stored separately:
+ * a flawless meaning recitation must never be allowed to look like verbatim
+ * recall, and a flawless recitation must never be allowed to look like
+ * understanding.
+ */
+export function applyAttemptToAxes(
+  current: AxisStabilities,
+  attempt: { accuracy: number; mode?: RecallMode; dimension?: RecallDimension },
+  rate = AXIS_LEARN_RATE,
+): AxisUpdateResult {
+  const dimension = attemptDimension(attempt);
+  const target = clamp01(attempt.accuracy);
+  const advance = (value: number | null): number => {
+    const base = value === null ? AXIS_UNTESTED_STABILITY : clamp01(value);
+    return roundScore(clamp01(base + rate * (target - base)));
+  };
+  const next: AxisStabilities =
+    dimension === 'meaning'
+      ? { formStability: roundScore(clamp01(current.formStability)), meaningStability: advance(current.meaningStability) }
+      : { formStability: advance(current.formStability), meaningStability: current.meaningStability };
+  return {
+    ...next,
+    dimension,
+    stability: compositeStability(next.formStability, next.meaningStability),
+    limitingAxis: limitingAxisOf(next.formStability, next.meaningStability),
+  };
+}
+
+/**
+ * Per-chunk update of a segment's two axes from one graded recitation of that
+ * chunk. `meaningStability` starts as null ("never tested"), and the first
+ * meaning attempt measures itself against `SEGMENT_MEANING_BASE`, not against an
+ * accidental row default.
+ */
+export function applyAttemptToSegment(
+  segment: HifzSegment,
+  attempt: { accuracy: number; mode?: RecallMode; dimension?: RecallDimension },
+  rate = AXIS_LEARN_RATE,
+): Pick<HifzSegment, 'stability' | 'meaningStability'> {
+  const dimension = attemptDimension(attempt);
+  const target = clamp01(attempt.accuracy);
+  const advance = (value: number | null): number =>
+    roundScore(clamp01((value ?? SEGMENT_MEANING_BASE) + rate * (target - (value ?? SEGMENT_MEANING_BASE))));
+  return dimension === 'meaning'
+    ? {
+        stability: segment.stability,
+        meaningStability: advance(segment.meaningStability),
+      }
+    : { stability: advance(segment.stability), meaningStability: segment.meaningStability };
+}
+
+/**
+ * The part of a graded attempt the stored fingerprint is updated from.
+ *
+ * It is a *view*, not a new row type: `RecallAttempt` keeps what the learner did,
+ * while the span below is what the engine asked for. The two differ — a
+ * continue-ayah step is graded over the tail it was handed — and the span only
+ * exists at grading time, so it is passed in rather than stored. No schema change
+ * is justified by a number the fingerprint can only learn once.
+ */
+export interface FingerprintAttemptView {
+  /**
+   * The memory track the recitation belongs to. A stored chunk is addressed by
+   * `(item, verse, position)` — that is its UNIQUE key — and two items can hold
+   * the same ayah (a dropped track and the fresh one enrolled in its place), so
+   * the ayah alone cannot say whose memory an attempt is evidence for.
+   */
+  itemId: string;
+  verseKey: string;
+  mode: RecallMode;
+  accuracy: number;
+  /**
+   * The 1-based word range inside `verseKey` the recitation was graded over, or
+   * null when the whole ayah was recited. It decides which chunks move.
+   */
+  span: { fromWord: number; toWord: number } | null;
+  /** The classifier's errors, whose `segmentPosition` already names the chunk each landed in. */
+  errors: readonly Pick<DetectedError, 'kind' | 'expectedPosition' | 'segmentPosition'>[];
+  /** `RecallAttempt.completedAt`, stored as the rows' `lastPracticedAt`. */
+  at: string | null;
+}
+
+/**
+ * Which stored chunks a recitation grades, and what it does to them.
+ *
+ * A chunk moves only when the span covers it **entirely**. That is the whole
+ * rule, and its reason is the one thing the fingerprint exists for: a chunk's
+ * number has to mean "this learner can produce this chunk". A continue-ayah step
+ * graded over words 4–7 of a 7-word ayah says nothing about the chunk 1–5, so
+ * that chunk keeps its previous number instead of being flattered or punished by
+ * a recitation that never asked for it. A null span is a full-ayah recitation,
+ * which does cover every chunk of that ayah.
+ *
+ * `errorCount` is the one field that is not an axis score: it counts the errors
+ * the classifier already attributed to this chunk (`segmentPosition`), on either
+ * axis. A meaning drill that stumbles over the words still stumbled over the
+ * words — but it moves `meaningStability`, never `stability`, which is the
+ * separation `RECALL_DIMENSION` exists to protect.
+ *
+ * Rows of another track, of another ayah, or of a chunk the span does not fully
+ * cover come back unchanged and in the order they arrived, so the caller can
+ * persist the array it was handed without re-sorting or re-keying anything.
+ */
+export function applyAttemptToStoredSegments(
+  segments: readonly HifzSegment[],
+  attempt: FingerprintAttemptView,
+  rate = AXIS_LEARN_RATE,
+): HifzSegment[] {
+  return segments.map((segment) => {
+    if (segment.itemId !== attempt.itemId || segment.verseKey !== attempt.verseKey) return segment;
+    const covered =
+      attempt.span === null ||
+      (segment.fromWord >= attempt.span.fromWord && segment.toWord <= attempt.span.toWord);
+    if (!covered) return segment;
+    const axes = applyAttemptToSegment(segment, attempt, rate);
+    const landed = attempt.errors.filter((error) => error.segmentPosition === segment.position).length;
+    if (axes.stability === segment.stability && axes.meaningStability === segment.meaningStability && landed === 0) {
+      return segment;
+    }
+    return { ...segment, ...axes, errorCount: segment.errorCount + landed };
+  });
+}
+
+/**
+ * What one recitation does to the hinges of the fingerprint.
+ *
+ * A transition row is the boundary *into* a word (`toWord`), inside one ayah or
+ * across two, so it is exercised by the attempt that was asked to start there —
+ * not by every attempt that happened to pass over it. Two cases, and nothing else:
+ *
+ *   • `intra`: the attempt recites the ayah holding the boundary and its span
+ *     **begins at** `toWord`. The learner was handed the clause before the hinge
+ *     and had to land on this word; a whole-ayah recitation (null span) is not
+ *     that question, so it does not answer it.
+ *   • `inter`: `verseKey` is the ayah being left and `toWord` is the first word of
+ *     `toVerseKey`, so the attempt that speaks to it is one **on the ayah entered**
+ *     whose span begins at that word. Continuing into the next ayah is the only
+ *     evidence that the seam between two ayat held; reciting either one alone is
+ *     not.
+ *
+ * A hinge **holds** when nothing went wrong on the word it arrives at: no error
+ * with `expectedPosition === toWord` in that attempt, and no `wrong-transition`
+ * anywhere in it — the classifier raises that kind precisely when the recitation
+ * jumped onto a different boundary. The number then moves the same way every other
+ * stability here moves: one exponential step toward 1 (held) or 0 (missed), at
+ * `AXIS_LEARN_RATE`. The counters are the raw evidence beside it, because
+ * "lost it there four times" is a different claim from the score.
+ *
+ * Anchors are deliberately absent: nothing in `core/src/hifz` reads
+ * `anchor_word.stability`, and a number no consumer uses is dead state, not a
+ * memory. They stay at their derived enrolment value until something asks.
+ */
+export function applyAttemptToStoredTransitions(
+  transitions: readonly HifzTransition[],
+  attempt: FingerprintAttemptView,
+  rate = AXIS_LEARN_RATE,
+): HifzTransition[] {
+  // `hifz_transition.stability` is one number on the form axis, so only a
+  // form-cued attempt may move it. A meaning drill that happens to begin on a
+  // hinge word says nothing about holding the Arabic seam.
+  if (attemptDimension(attempt) !== 'form') return [...transitions];
+  const jumped = attempt.errors.some((error) => error.kind === 'wrong-transition');
+  return transitions.map((transition) => {
+    // The ayah whose word list `toWord` counts through.
+    const arrivedIn = transition.kind === 'inter' ? transition.toVerseKey : transition.verseKey;
+    if (transition.itemId !== attempt.itemId || arrivedIn === null || attempt.verseKey !== arrivedIn) return transition;
+    // Only a span tells us the step began at this hinge; a whole-ayah recitation
+    // began at word 1 and proves nothing about a boundary further in.
+    if (attempt.span === null || attempt.span.fromWord !== transition.toWord) return transition;
+    const landedWrong = jumped || attempt.errors.some((error) => error.expectedPosition === transition.toWord);
+    const target = landedWrong ? 0 : 1;
+    return {
+      ...transition,
+      stability: roundScore(clamp01(transition.stability + rate * (target - transition.stability))),
+      successCount: transition.successCount + (landedWrong ? 0 : 1),
+      failureCount: transition.failureCount + (landedWrong ? 1 : 0),
+      lastPracticedAt: attempt.at ?? transition.lastPracticedAt,
+    };
+  });
 }

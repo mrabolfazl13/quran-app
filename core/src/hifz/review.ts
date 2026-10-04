@@ -1,10 +1,14 @@
 /**
  * Adaptive review scheduler.
  *
- * Deterministic, documented weights over nine factors; same inputs produce
+ * Deterministic, documented weights over ten factors; same inputs produce
  * byte-identical output (a test schedules the same input twice and compares
  * JSON). Every entry carries its per-factor breakdown so the UI can answer
  * "why is this ayah due?" without guessing.
+ *
+ * The tenth factor is the meaning gap: an ayah whose sound-shape is solid and
+ * whose sense is blank is recited, not memorised, and the queue has to be able to
+ * say so. It is zero for any item no licensed meaning covers.
  *
  * The weights are an engineering heuristic: bounded, monotone, tunable in
  * `params.ts`, and NOT validated by memory research. See
@@ -21,6 +25,7 @@ import type {
   RecallAttempt,
   RecallMode,
   ReviewPlanEntry,
+  SegmentMeaning,
 } from '../contracts/hifz';
 import {
   CONFUSION_SATURATION_ERRORS,
@@ -30,6 +35,9 @@ import {
   GROUP_MEMBER_LIFT_CAP,
   GROUP_MEMBER_TAPER,
   HISTORICAL_ERROR_WORD_NORMALIZER,
+  MEANING_CONCEPT_CUE_MAX_GAP,
+  MEANING_GAP_SATURATION,
+  MEANING_UNTESTED_GAP,
   MODE_COST_SECONDS,
   NEW_AYAH_EXPOSURE_SECONDS,
   NEW_AYAH_PER_DAY_CAP,
@@ -71,12 +79,26 @@ export const CROSS_AYAH_ERROR_KINDS: readonly ErrorKind[] = [
 
 export type ReviewWeights = Record<ReviewFactorKey, number>;
 
+/**
+ * Which verses a licensed meaning actually covers, supplied by the caller from
+ * the content packs it imported. The engine never looks a meaning up itself and
+ * never writes one: no entry (or a null entry) means the meaning axis has no cue
+ * to test with, so it contributes nothing to this item's priority.
+ *
+ * Keyed by `verse_key`, because that is the stable domain key.
+ */
+export type MeaningCoverage = Readonly<Record<string, SegmentMeaning | null>>;
+
 export interface ItemHistory {
   item: HifzItem;
   attempts: RecallAttempt[];
   segments: HifzSegment[];
   transitions: HifzTransition[];
   groups: ConfusionGroup[];
+  /** A licensed meaning covers this item's own ayah, so a meaning probe can be built. */
+  meaningAvailable: boolean;
+  /** It also covers the ayah before it, so the concept-cue chain can be built. */
+  previousMeaningAvailable: boolean;
 }
 
 export interface ReviewContextInput {
@@ -88,6 +110,18 @@ export interface ReviewContextInput {
   confusionGroups?: readonly ConfusionGroup[];
   /** Override any weight for tuning; missing keys fall back to `REVIEW_WEIGHTS`. */
   weights?: Partial<ReviewWeights>;
+  /**
+   * Meaning coverage per verse key. `meanings[key]` is the ayah's own licensed
+   * meaning; `concept-cue` is only offered when the previous ayah's key is also
+   * present, so the chain never cues a learner with a meaning the app does not have.
+   */
+  meanings?: MeaningCoverage | null;
+  /**
+   * Previous verse key per ayah, from the mushaf order the caller already has.
+   * Without it the engine cannot know what "the previous ayah" is, so it assumes
+   * nothing and `concept-cue` is never suggested.
+   */
+  previousVerseKey?: Readonly<Record<string, string | null>> | null;
 }
 
 export interface ScoredItem {
@@ -129,15 +163,22 @@ export function historyFor(input: ReviewContextInput): Map<string, ItemHistory> 
   const segmentsByItem = groupByItemId(input.segments);
   const transitionsByItem = groupByItemId(input.transitions);
   const groups = input.confusionGroups ?? [];
+  const meanings = input.meanings ?? null;
+  const previousKeys = input.previousVerseKey ?? null;
   const out = new Map<string, ItemHistory>();
   for (const item of input.items) {
     const itemKeys = new Set(item.sequence.length > 0 ? [...item.sequence, item.verseKey] : [item.verseKey]);
+    const meaning = meanings?.[item.verseKey] ?? null;
+    const previousKey = previousKeys?.[item.verseKey] ?? null;
+    const previousMeaning = previousKey ? meanings?.[previousKey] ?? null : null;
     out.set(item.id, {
       item,
       attempts: (attemptsByItem.get(item.id) ?? []).slice().sort((a, b) => parseIso(a.startedAt) - parseIso(b.startedAt) || a.id.localeCompare(b.id)),
       segments: segmentsByItem.get(item.id) ?? [],
       transitions: transitionsByItem.get(item.id) ?? [],
       groups: groups.filter((g) => g.verseKeys.some((k) => itemKeys.has(k))),
+      meaningAvailable: meaning !== null && meaning.text.trim().length > 0,
+      previousMeaningAvailable: previousMeaning !== null && previousMeaning.text.trim().length > 0,
     });
   }
   return out;
@@ -155,7 +196,23 @@ function shareBelow(rows: readonly { stability: number }[], threshold: number): 
 }
 
 /**
- * The nine raw factors, each 0..1. Formulas documented in
+ * The meaning lag of an item: how far its conceptual axis sits behind its
+ * sound-shape axis, in stability points.
+ *
+ * Zero when no licensed meaning covers the item, because an axis nothing can cue
+ * is not a gap — inventing one would send a learner to a probe the app cannot
+ * honestly grade. An item that *could* be probed but never was (`meaningStability`
+ * null) reports the full `MEANING_UNTESTED_GAP`: a whole untested axis is the
+ * largest gap there is.
+ */
+export function meaningLagOf(item: HifzItem, meaningAvailable: boolean): number {
+  if (!meaningAvailable) return 0;
+  if (item.meaningStability === null) return MEANING_UNTESTED_GAP;
+  return Math.max(0, item.formStability - item.meaningStability);
+}
+
+/**
+ * The ten raw factors, each 0..1. Formulas documented in
  * `docs/review-algorithm.md`; every number is derived from stored history.
  */
 export function rawFactors(history: ItemHistory, nowIso: string): Record<ReviewFactorKey, number> {
@@ -211,6 +268,10 @@ export function rawFactors(history: ItemHistory, nowIso: string): Record<ReviewF
 
   const band = BAND_URGENCY[item.band] ?? 0.5;
 
+  // Meaning gap: how far the conceptual axis lags the sound-shape axis, normalised
+  // against `MEANING_GAP_SATURATION` so a full gap saturates the factor.
+  const meaningGap = clamp01(meaningLagOf(item, history.meaningAvailable) / MEANING_GAP_SATURATION);
+
   return {
     'historical-errors': roundScore(historical),
     'weak-segments': roundScore(weakSegments),
@@ -221,12 +282,19 @@ export function rawFactors(history: ItemHistory, nowIso: string): Record<ReviewF
     'confusion-rate': roundScore(confusion),
     'group-membership': roundScore(membership),
     band: roundScore(band),
+    'meaning-gap': roundScore(meaningGap),
   };
 }
 
-function factorSummaries(history: ItemHistory, nowIso: string): Record<ReviewFactorKey, string> {
-  const { item, attempts, segments, transitions, groups } = history;
-  let wrongWords = 0;
+/**
+ * One honest sentence per factor, in the engine's own words. `scoreItem` puts the
+ * three strongest into `entry.reason`; the rest stay reachable here so a caller
+ * can state a factor that contributed *nothing* — an ayah no licensed meaning
+ * covers has a `meaning-gap` of 0, which the reason would silently omit, and
+ * "nothing to test" is exactly the message a learner deserves to see.
+ */
+export function factorSummaries(history: ItemHistory, nowIso: string): Record<ReviewFactorKey, string> {
+  const { item, attempts, segments, transitions, groups } = history;  let wrongWords = 0;
   let confusionErrors = 0;
   for (const attempt of attempts) {
     for (const error of attempt.errors) {
@@ -255,12 +323,22 @@ function factorSummaries(history: ItemHistory, nowIso: string): Record<ReviewFac
     'confusion-rate': `${confusionErrors} cross-ayah error(s)`,
     'group-membership': groups.length > 0 ? `confusion group ${groups.map((g) => g.id).join(', ')}` : 'ungrouped',
     band: `band=${item.band}`,
+    'meaning-gap': !history.meaningAvailable
+      ? 'no licensed meaning available for this ayah'
+      : item.meaningStability === null
+        ? `meaning axis never tested vs form ${roundScore(item.formStability)}`
+        : `meaning ${roundScore(item.meaningStability)} vs form ${roundScore(item.formStability)} (lag ${roundScore(meaningLagOf(item, true))})`,
   };
 }
 
 /**
  * Mode suggestion, as an ordered rule chain on the raw factors. The first rule
  * that fires wins, so the choice is explainable rather than heuristic soup.
+ *
+ * The meaning rule sits directly after "this is brand-new material": nothing
+ * beats chunking an ayah you have not learned yet, but once it is learned, the
+ * axis that is behind is the axis that gets drilled. A meaning mode is only ever
+ * suggested when a licensed meaning exists to cue it with.
  */
 export function suggestMode(history: ItemHistory, raw: Record<ReviewFactorKey, number>): RecallMode {
   const { item, attempts } = history;
@@ -273,6 +351,14 @@ export function suggestMode(history: ItemHistory, raw: Record<ReviewFactorKey, n
     }
   }
   if (attempts.length === 0 || item.band === 'new') return 'segment';
+  if (raw['meaning-gap'] > 0 && history.meaningAvailable) {
+    const lag = meaningLagOf(item, true);
+    // A small hole is trained as a chain (previous meaning → this ayah's opening)
+    // when the previous ayah's meaning is licensed too; a big hole needs the
+    // direct meaning→Arabic binding of the whole ayah first.
+    if (lag <= MEANING_CONCEPT_CUE_MAX_GAP && history.previousMeaningAvailable) return 'concept-cue';
+    return 'meaning-to-arabic';
+  }
   if (raw['confusion-rate'] > 0 || raw['group-membership'] > 0) return 'full-ayah';
   if (raw['weak-transitions'] >= raw['weak-segments'] && raw['weak-transitions'] > 0) return 'transition';
   const worstPositional = Math.max(positional.beginning, positional.middle, positional.ending);
@@ -293,10 +379,25 @@ export function scoreItem(history: ItemHistory, nowIso: string, weights?: Partia
   const weighted = {} as Record<ReviewFactorKey, number>;
   let priority = 0;
   for (const key of Object.keys(raw) as ReviewFactorKey[]) {
+    // `meaning-gap` is not summed here: it is applied as a bounded uplift below.
+    if (key === 'meaning-gap') continue;
     const contribution = raw[key] * w[key];
     weighted[key] = roundScore(contribution);
     priority += contribution;
   }
+  // The nine documented weights sum to exactly 1.00, so `priority` above is the
+  // documented weighted average and an item with no meaning lag scores precisely
+  // what it scored before the meaning axis existed.
+  //
+  // The gap then takes its share of whatever headroom those nine left: it can
+  // only ever raise urgency, it cannot dilute a documented factor to do so, and
+  // `p + gap·w·(1 − p)` stays inside 0..1 by construction. Re-weighting the nine
+  // instead would have shifted every existing priority by ~12% and silently moved
+  // which items clear the plan and weak cutoffs for learners who have never been
+  // shown a meaning probe.
+  const gapUplift = clamp01(raw['meaning-gap']) * w['meaning-gap'] * (1 - priority);
+  weighted['meaning-gap'] = roundScore(gapUplift);
+  priority = clamp01(priority + gapUplift);
   const summaries = factorSummaries(history, nowIso);
   const ordered = (Object.keys(weighted) as ReviewFactorKey[])
     .map((key) => ({ key, value: weighted[key] }))

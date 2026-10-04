@@ -386,10 +386,10 @@ function reportInput() {
     makeSegment({ itemId: 'i-112a', position: 0, fromWord: 1, toWord: 4, stability: 0.9 }),
   ];
   const transitions: HifzTransition[] = [
-    makeTransition({ itemId: 'i-255', toWord: 4, stability: 0.7 }),
-    makeTransition({ itemId: 'i-255', toWord: 8, stability: 0.9 }),
-    makeTransition({ itemId: 'i-112a', toWord: 1, kind: 'inter', stability: 0.1 }),
-    makeTransition({ itemId: 'i-112c', toWord: 2, stability: 0.8 }),
+    makeTransition({ itemId: 'i-255', verseKey: '2:255', toWord: 4, stability: 0.7 }),
+    makeTransition({ itemId: 'i-255', verseKey: '2:255', toWord: 8, stability: 0.9 }),
+    makeTransition({ itemId: 'i-112a', verseKey: '112:1', toWord: 1, kind: 'inter', stability: 0.1 }),
+    makeTransition({ itemId: 'i-112c', verseKey: '112:4', toWord: 2, stability: 0.8 }),
   ];
   const prior = [
     makeAttempt({ id: 'old-1', itemId: 'i-255', verseKey: '2:255', startedAt: dayIso(10), completedAt: dayIso(10, 1), expectedWordCount: 50, correctWordCount: 45 }),
@@ -424,7 +424,7 @@ describe('session report', () => {
   it('names the segment that broke, by accuracy over its own words', () => {
     const report = computeSessionReport(reportInput().input);
     expect(report.weakSegments).toEqual([
-      { itemId: 'i-255', segmentPosition: 1, accuracy: 0.5 },
+      { itemId: 'i-255', verseKey: '2:255', segmentPosition: 1, accuracy: 0.5 },
     ]);
     for (const row of report.weakSegments) expect(row.accuracy).toBeLessThan(WEAK_SEGMENT_STABILITY);
   });
@@ -435,8 +435,8 @@ describe('session report', () => {
     // the ayah that was recited perfectly lifts its inter-ayah boundary, the
     // omitted word drags the boundary that follows it down.
     expect(report.weakTransitions).toEqual([
-      { itemId: 'i-112a', toWord: 1, stability: 0.415 },
-      { itemId: 'i-255', toWord: 4, stability: 0.455 },
+      { itemId: 'i-112a', verseKey: '112:1', toWord: 1, stability: 0.415 },
+      { itemId: 'i-255', verseKey: '2:255', toWord: 4, stability: 0.455 },
     ]);
     for (const row of report.weakTransitions) expect(row.stability).toBeLessThan(WEAK_TRANSITION_STABILITY);
     // boundaries of items not recited in this session are not reported

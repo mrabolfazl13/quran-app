@@ -27,9 +27,10 @@ import {
 } from '../../src/hifz/recall';
 import { segmentAyah } from '../../src/hifz/segment';
 import {
-
-  ayahText
+  ayahText,
+  makeMeaning
 } from './fixtures';
+import { RECALL_MODES } from '../../src/contracts/hifz';
 import type { VerseKey } from '../../src/contracts/quran';
 import { tokenizeWords } from '../../src/normalize/arabic';
 import { MISSING_WORD_PLACEHOLDER, RANDOM_PROBE_SPAN_WORDS } from '../../src/hifz/params';
@@ -241,6 +242,11 @@ describe('buildProbe dispatcher', () => {
       givenWords: 1,
       position: 3,
       seed: 5,
+      // The two meaning modes refuse to build without a licensed cue, so the
+      // full-coverage check has to supply one.
+      meaning: makeMeaning('say: He is Allah, the One'),
+      previousMeaning: makeMeaning('say: He is Allah, the Eternal, the Absolute'),
+      previousVerseKey: '112:2' as VerseKey,
     };
     for (const mode of PROBE_MODES) {
       const probe = buildProbe(mode, context);
@@ -253,6 +259,10 @@ describe('buildProbe dispatcher', () => {
     }
   });
 
+  it('dispatches every mode the contracts declare, with no gap either way', () => {
+    expect([...PROBE_MODES].sort()).toEqual([...RECALL_MODES].sort());
+  });
+
   it('no probe invents a word that is not in the fixture ayah', () => {
     const source = words('112:1');
     const probe = buildProbe('random', { ayah: ayah('112:1'), seed: 3 });
@@ -263,5 +273,7 @@ describe('buildProbe dispatcher', () => {
     expect(() => buildProbe('segment', { ayah: ayah('112:1') })).toThrow(/needs a segment/);
     expect(() => buildProbe('transition', { ayah: ayah('112:1') })).toThrow(/following ayah/);
     expect(() => buildProbe('continue-sequence', { ayah: ayah('112:1') })).toThrow(/following ayah/);
+    expect(() => buildProbe('meaning-to-arabic', { ayah: ayah('112:1') })).toThrow(/licensed meaning/);
+    expect(() => buildProbe('concept-cue', { ayah: ayah('112:2') })).toThrow(/previous ayah meaning/);
   });
 });

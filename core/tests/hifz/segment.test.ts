@@ -4,7 +4,13 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { assertTiling, segmentAyah, segmentAt, hifzWordsOf } from '../../src/hifz/segment';
+import {
+  assertTiling,
+  segmentAyah,
+  segmentAt,
+  segmentWordGloss,
+  hifzWordsOf,
+} from '../../src/hifz/segment';
 import {
 
   SURAH_1_KEYS,
@@ -12,10 +18,12 @@ import {
   SURAH_112_KEYS,
   fixtureWords,
   fixtureWordsWithMark,
+  makeMeaning,
   ayahText
 } from './fixtures';
 import { tokenizeWords, normalizeWord } from '../../src/normalize/arabic';
-import { MAX_SEGMENT_WORDS, MIN_SEGMENT_WORDS } from '../../src/hifz/params';
+import { MAX_SEGMENT_WORDS, MIN_SEGMENT_WORDS, WORD_GLOSS_LANG, WORD_GLOSS_PACK_ID } from '../../src/hifz/params';
+import type { VerseKey } from '../../src/contracts/quran';
 
 const ALL_KEYS = [...SURAH_1_KEYS, ...SURAH_108_KEYS, ...SURAH_112_KEYS, '2:255'] as const;
 
@@ -249,13 +257,88 @@ describe('word list integration', () => {
       itemId: 'i-112-3',
       verseKey: '112:3',
       text: ayahText('112:3'),
-      meaningsFa: { 0: 'fixture:negation-of-birth', 1: 'fixture:negation-of-being-born' },
+      meanings: {
+        0: makeMeaning('negation-of-birth', { packId: 'tf-112-3-a' }),
+        1: makeMeaning('negation-of-being-born', { packId: 'tf-112-3-b' }),
+      },
     });
-    expect(result.segments[0]!.meaningFa).toBe('fixture:negation-of-birth');
-    expect(result.segments[0]!.meaningSource).toBe('fixture-editorial');
-    expect(result.segments[1]!.meaningFa).toBe('fixture:negation-of-being-born');
+    expect(result.segments[0]!.meaning).toEqual({
+      text: 'fixture:negation-of-birth',
+      lang: 'fa',
+      packId: 'tf-112-3-a',
+      wordGloss: false,
+    });
+    expect(result.segments[1]!.meaning!.text).toBe('fixture:negation-of-being-born');
+    // a chunk nobody gave a meaning to stays null: no invented gloss
+    const partial = segmentAyah({
+      itemId: 'i-112-3',
+      verseKey: '112:3',
+      text: ayahText('112:3'),
+      meanings: { 0: makeMeaning('negation-of-birth') },
+    });
+    expect(partial.segments[0]!.meaning).not.toBeNull();
+    expect(partial.segments[1]!.meaning).toBeNull();
+    expect(partial.notes.join(' ')).toMatch(/no licensed meaning/);
     const bare = segmentAyah({ itemId: 'i-112-3', verseKey: '112:3', text: ayahText('112:3') });
-    expect(bare.segments[0]!.meaningFa).toBeNull();
+    expect(bare.segments[0]!.meaning).toBeNull();
+    expect(bare.segments.every((s) => s.meaningStability === null)).toBe(true);
+    // with nothing supplied the notes stay clean, as before the meaning axis
+    expect(bare.notes).toEqual([]);
+  });
+
+  it('a segment gloss is the joined translation_en of exactly its own words', () => {
+    const verseKey: VerseKey = '112:3';
+    const words = fixtureWords(verseKey, ['He', 'begets', 'He', 'is-begotten']);
+    const result = segmentAyah({
+      itemId: 'i-112-3',
+      verseKey,
+      text: ayahText(verseKey),
+      words,
+      wordGlossSource: { packId: 'word-data', lang: 'en' },
+    });
+    expect(result.segments.length).toBeGreaterThan(1);
+    const covered: string[] = [];
+    for (const segment of result.segments) {
+      expect(segment.meaning).not.toBeNull();
+      const own = words
+        .filter((w) => w.position >= segment.fromWord && w.position <= segment.toWord)
+        .map((w) => w.translationEn!);
+      expect(segment.meaning!.text.split(' ')).toEqual(own);
+      expect(segment.meaning!.wordGloss).toBe(true);
+      expect(segment.meaning!.packId).toBe('word-data');
+      expect(segment.meaning!.lang).toBe('en');
+      covered.push(...own);
+    }
+    // every gloss is used exactly once, and none is invented
+    expect(covered).toEqual(words.map((w) => w.translationEn!));
+  });
+
+  it('a chunk with any unglossed word gets no meaning rather than a partial one', () => {
+    const verseKey: VerseKey = '112:3';
+    const result = segmentAyah({
+      itemId: 'i-112-3',
+      verseKey,
+      text: ayahText(verseKey),
+      words: fixtureWords(verseKey),
+      wordGlossSource: true,
+    });
+    for (const segment of result.segments) expect(segment.meaning).toBeNull();
+    expect(result.notes.join(' ')).toMatch(/no licensed meaning/);
+  });
+
+  it('an explicit pack meaning wins over a stitched word gloss', () => {
+    const verseKey: VerseKey = '112:3';
+    const result = segmentAyah({
+      itemId: 'i-112-3',
+      verseKey,
+      text: ayahText(verseKey),
+      words: fixtureWords(verseKey, ['He', 'begets', 'He', 'is-begotten']),
+      wordGlossSource: true,
+      meanings: { 0: makeMeaning('clause-from-pack') },
+    });
+    expect(result.segments[0]!.meaning!.text).toBe('fixture:clause-from-pack');
+    expect(result.segments[0]!.meaning!.wordGloss).toBe(false);
+    expect(result.segments[1]!.meaning!.wordGloss).toBe(true);
   });
 });
 

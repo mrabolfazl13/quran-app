@@ -8,7 +8,10 @@
  * future change to this file is a test change, not a content change.
  *
  * `translationEn` values are deliberately absent or prefixed with `fixture:`
- * so no invented gloss can be mistaken for licensed content.
+ * so no invented gloss can be mistaken for licensed content. The same holds for
+ * every `SegmentMeaning` these fixtures hand the engine: the meaning axis tests
+ * exactly the text the caller supplied, so a prefixed fixture string proves the
+ * engine echoes a pack's words rather than writing its own.
  */
 
 import type { AyahWord, VerseKey } from '../../src/contracts/quran';
@@ -21,7 +24,9 @@ import type {
   HifzTransition,
   RecallAttempt,
   RecitedWord,
+  SegmentMeaning,
 } from '../../src/contracts/hifz';
+import { RECALL_DIMENSION } from '../../src/contracts/hifz';
 import { tokenizeWords } from '../../src/normalize/arabic';
 
 export const FIXTURE_NOTE = 'test fixtures only — never authoritative app data';
@@ -198,12 +203,18 @@ export function producedWithRun(
 }
 
 export function makeItem(overrides: Partial<HifzItem> & Pick<HifzItem, 'id' | 'verseKey'>): HifzItem {
+  const stability = overrides.stability ?? 0;
   return {
     sequence: [overrides.verseKey],
     addedAt: '2026-01-01T00:00:00.000Z',
     status: 'active',
     band: 'new',
-    stability: 0,
+    stability,
+    // A fixture that names only the composite is a form-only history: the meaning
+    // axis is `null` — never tested — not zero, which the contract reserves for
+    // "tested and failed".
+    formStability: stability,
+    meaningStability: overrides.meaningStability === undefined ? null : overrides.meaningStability,
     strength: 0,
     lastReviewedAt: null,
     nextReviewAt: null,
@@ -218,9 +229,11 @@ export function makeAttempt(
 ): RecallAttempt {
   const expectedWordCount = overrides.expectedWordCount ?? 0;
   const correctWordCount = overrides.correctWordCount ?? 0;
+  const mode = overrides.mode ?? 'full-ayah';
   return {
     sessionId: null,
-    mode: 'full-ayah',
+    mode,
+    dimension: RECALL_DIMENSION[mode],
     startedAt: '2026-01-01T00:00:00.000Z',
     completedAt: null,
     produced: [],
@@ -247,18 +260,45 @@ export function makeSegment(
   overrides: Partial<HifzSegment> & Pick<HifzSegment, 'itemId'>,
 ): HifzSegment {
   const position = overrides.position ?? 0;
+  // The default names the fixture ayah the tests recite; a caller that tiles a
+  // second ayah passes its own `verseKey`, because `position` restarts per ayah.
+  const verseKey = overrides.verseKey ?? '112:1';
   return {
-    id: `${overrides.itemId}:s${position}`,
+    id: `${overrides.itemId}:${verseKey}:s${position}`,
+    verseKey,
     position,
     fromWord: 1,
     toWord: 2,
     text: 'segment',
-    meaningFa: null,
-    meaningSource: null,
+    meaning: null,
     stability: 0,
+    meaningStability: null,
     errorCount: 0,
     ...overrides,
   };
+}
+
+/**
+ * A meaning row for the tests. The text is prefixed `fixture:` because these are
+ * test strings, not licensed pack content — the engine treats both identically,
+ * and this keeps an invented gloss from being mistaken for a real translation.
+ */
+export function makeMeaning(
+  text: string,
+  overrides: Partial<SegmentMeaning> = {},
+): SegmentMeaning {
+  return {
+    text: `fixture:${text}`,
+    lang: 'fa',
+    packId: 'tr-fa-kaldari',
+    wordGloss: false,
+    ...overrides,
+  };
+}
+
+/** A joined per-word gloss, as `segmentWordGloss` builds it. */
+export function makeWordGloss(text: string, overrides: Partial<SegmentMeaning> = {}): SegmentMeaning {
+  return makeMeaning(text, { packId: 'word-data', lang: 'en', wordGloss: true, ...overrides });
 }
 
 /** A transition row with a chosen stability. */
@@ -267,8 +307,10 @@ export function makeTransition(
 ): HifzTransition {
   const toWord = overrides.toWord ?? 2;
   const kind = overrides.kind ?? 'intra';
+  const verseKey = overrides.verseKey ?? '112:1';
   return {
-    id: `${overrides.itemId}:t${kind}${toWord}`,
+    id: `${overrides.itemId}:${verseKey}:t${kind}${toWord}`,
+    verseKey,
     kind,
     toVerseKey: kind === 'inter' ? '112:2' : null,
     toWord,

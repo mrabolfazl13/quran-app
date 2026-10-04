@@ -162,10 +162,34 @@ function entryFor(entries: ReviewPlanEntry[], verseKey: string): ReviewPlanEntry
   return found;
 }
 
+/** The nine factors that are summed into a priority (the meaning uplift is not). */
+const SUMMED_KEYS = FACTOR_KEYS.filter((key) => key !== 'meaning-gap');
+
 describe('review weights', () => {
   it('sum to exactly 1 so priority is a weighted average', () => {
-    const sum = FACTOR_KEYS.reduce((acc, key) => acc + REVIEW_WEIGHTS[key], 0);
+    const sum = SUMMED_KEYS.reduce((acc, key) => acc + REVIEW_WEIGHTS[key], 0);
     expect(sum).toBeCloseTo(1, 10);
+  });
+
+  it('keep the meaning gap as a bounded uplift, not a tenth slice', () => {
+    // The documented nine are unchanged by the meaning axis, so an item with no
+    // meaning lag scores exactly what it scored before the axis existed, and no
+    // learner loses a documented factor's weight to a feature they never opted in
+    // to. The gap takes a share of the headroom the nine leave instead.
+    const gapWeight = REVIEW_WEIGHTS['meaning-gap'];
+    expect(gapWeight).toBeGreaterThan(0);
+    expect(gapWeight).toBeLessThan(1);
+    const input = scenario();
+    const clean = scoreItem(historyOf(input, 'i-over'), input.nowIso);
+    const lagging = scoreItem({ ...historyOf(input, 'i-over'), meaningAvailable: true }, input.nowIso);
+    expect(clean.weighted['meaning-gap']).toBe(0);
+    expect(lagging.entry.priority).toBeGreaterThan(clean.entry.priority);
+    // uplift = raw × weight × headroom, and never exceeds what is left
+    expect(lagging.weighted['meaning-gap']).toBeCloseTo(
+      lagging.raw['meaning-gap'] * gapWeight * (1 - clean.entry.priority),
+      3,
+    );
+    expect(lagging.entry.priority).toBeLessThanOrEqual(1);
   });
 
   it('every factor key is exposed both weighted and raw', () => {
@@ -305,9 +329,13 @@ describe('priority and reasons', () => {
     const scored = scoreItem(historyOf(input, 'i-over'), input.nowIso);
     const sum = FACTOR_KEYS.reduce((acc, key) => acc + scored.weighted[key], 0);
     expect(scored.entry.priority).toBeCloseTo(sum, 3);
-    for (const key of FACTOR_KEYS) {
+    for (const key of SUMMED_KEYS) {
       expect(scored.weighted[key]).toBeCloseTo(scored.raw[key] * REVIEW_WEIGHTS[key], 4);
     }
+    // every summed contribution is inside its own weight, and the whole priority
+    // is inside 0..1 with the uplift applied
+    for (const key of SUMMED_KEYS) expect(scored.weighted[key]).toBeLessThanOrEqual(REVIEW_WEIGHTS[key]);
+    expect(scored.entry.priority).toBeLessThanOrEqual(1);
   });
 
   it('reason lists the three strongest factors, and the entry carries its due date', () => {
@@ -320,9 +348,52 @@ describe('priority and reasons', () => {
       expect(scored.entry.reason.length).toBeGreaterThan(0);
     }
     expect(scored.entry.reason.split('; ')).toHaveLength(3);
+    expect(scored.entry.reason).toContain('2/3 segment(s) below 0.6');
+    expect(scored.entry.reason).toContain('2/3 transition(s) below 0.6');
     expect(scored.entry.reason).toContain('overdue by 7d');
     expect(scored.entry.dueAt).toBe(dayIso(23));
+    // the documented pre-meaning priority, unchanged: nothing about this item's
+    // meaning was tested, and no licensed meaning was supplied for it either
     expect(scored.entry.priority).toBeCloseTo(0.4511, 4);
+  });
+
+  it('names the overdue summary when overdue is the dominant weight', () => {
+    const input = scenario();
+    const only = Object.fromEntries(
+      FACTOR_KEYS.map((key) => [key, 0]),
+    ) as Record<ReviewFactorKey, number>;
+    const scored = scoreItem(historyOf(input, 'i-over'), input.nowIso, { ...only, overdue: 1 });
+    expect(scored.entry.reason).toBe('overdue by 7d');
+    expect(scored.entry.priority).toBeCloseTo(scored.raw.overdue, 4);
+  });
+
+  it('reports the meaning axis as unavailable rather than as a zero gap', () => {
+    const input = scenario();
+    const scored = scoreItem(historyOf(input, 'i-over'), input.nowIso);
+    expect(scored.raw['meaning-gap']).toBe(0);
+    // No meaning was supplied for this ayah, so the reason must say so when the
+    // meaning factor is the one carrying the weight — an absent axis is not a
+    // silent one.
+    const only = Object.fromEntries(
+      FACTOR_KEYS.map((key) => [key, 0]),
+    ) as Record<ReviewFactorKey, number>;
+    const meaningWeighted = scoreItem(historyOf(input, 'i-over'), input.nowIso, {
+      ...only,
+      'meaning-gap': 1,
+    });
+    expect(meaningWeighted.raw['meaning-gap']).toBe(0);
+    expect(meaningWeighted.entry.reason).toBe('no urgency signals');
+    const covered = scoreItem(
+      { ...historyOf(input, 'i-over'), meaningAvailable: true },
+      input.nowIso,
+      { ...only, 'meaning-gap': 1 },
+    );
+    expect(covered.raw['meaning-gap']).toBe(1);
+    expect(covered.entry.reason).toBe('meaning axis never tested vs form 0.5');
+    // and with the documented weight it still moves the number, just quietly
+    const withMeaning = scoreItem({ ...historyOf(input, 'i-over'), meaningAvailable: true }, input.nowIso);
+    expect(withMeaning.entry.priority).toBeGreaterThan(scored.entry.priority);
+    expect(withMeaning.weighted['meaning-gap']).toBeGreaterThan(0);
   });
 
   it('honest summaries appear when segment rows are missing', () => {
@@ -351,6 +422,10 @@ describe('suggestMode', () => {
     segments: [],
     transitions: [],
     groups: [],
+    // No meaning coverage by default: the meaning rules only fire when the
+    // scenario says a licensed meaning exists.
+    meaningAvailable: false,
+    previousMeaningAvailable: false,
     ...over,
   });
   const modeOf = (over: Partial<ItemHistory>, raw?: Partial<Record<ReviewFactorKey, number>>): string => {
@@ -365,6 +440,7 @@ describe('suggestMode', () => {
       'confusion-rate': 0,
       'group-membership': 0,
       band: 0,
+      'meaning-gap': 0,
     };
     return suggestMode(history, { ...defaults, ...raw });
   };
@@ -542,6 +618,9 @@ describe('daily plan', () => {
     const plan = buildDailyPlan(input());
     expect(plan.date).toBe('2026-01-31');
     const all = planReviews(input());
+    // The scenario supplies no licensed meaning, so every gap is 0 and these are
+    // the pre-meaning-axis priorities, byte for byte: the tenth factor must not
+    // change what an item with no conceptual lag scores.
     expect(all.map((e) => e.priority)).toEqual([0.5433, 0.5111, 0.301]);
     expect([...plan.weakItems, ...plan.reviewItems].map((e) => e.verseKey)).toEqual(['112:1', '2:255', '112:4']);
     for (const entry of [...plan.weakItems, ...plan.reviewItems]) {

@@ -9,12 +9,20 @@
  *    twice, no word uncovered, first segment starts at word 1, last segment
  *    ends at the final word;
  *  - every boundary is explained (pause mark, connector, or forced split);
- *  - the same input always yields the same output.
+ *  - the same input always yields the same output;
+ *  - a segment's `meaning` is either a text the caller read out of a licensed
+ *    content pack (and says which pack, in which language) or `null`. This
+ *    module never writes, "fixes" or machine-translates a gloss of revelation.
  */
 
 import { normalizeWord, tokenizeWords } from '../normalize/arabic';
 import type { AyahWord } from '../contracts/quran';
-import type { AnchorWord, HifzSegment, HifzTransition } from '../contracts/hifz';
+import type {
+  AnchorWord,
+  HifzSegment,
+  HifzTransition,
+  SegmentMeaning,
+} from '../contracts/hifz';
 import {
   ANCHOR_ID_TAG,
   BOUNDARY_SCORE_CONNECTOR,
@@ -29,6 +37,8 @@ import {
   SEGMENT_ID_TAG,
   STANDALONE_CONNECTORS,
   TRANSITION_ID_TAG,
+  WORD_GLOSS_LANG,
+  WORD_GLOSS_PACK_ID,
 } from './params';
 
 /** One clause boundary that the segmenter considered or chose. */
@@ -56,6 +66,14 @@ export interface HifzWord {
   pauseAfter: boolean;
 }
 
+/** Where the caller's per-chunk meanings came from, when they are word glosses. */
+export interface MeaningSourceLabel {
+  /** Content pack id the gloss rows belong to, e.g. `word-data`. */
+  packId: string;
+  /** Language the gloss rows are written in. */
+  lang: 'fa' | 'ar' | 'en';
+}
+
 export interface SegmentAyahInput {
   itemId: string;
   verseKey: string;
@@ -68,8 +86,22 @@ export interface SegmentAyahInput {
   words?: readonly AyahWord[] | null;
   /** Next ayah of the item's sequence; adds an inter-ayah transition. */
   nextVerseKey?: string | null;
-  /** Editorial meaning labels keyed by 0-based segment position. */
-  meaningsFa?: Record<number, string> | null;
+  /**
+   * Licensed meaning of each chunk, keyed by 0-based segment position, exactly as
+   * the caller read it out of a content pack. A position with no entry leaves the
+   * segment with `meaning: null` — this module never writes a gloss of revealed
+   * text of its own (AGENTS.md: never invent content).
+   */
+  meanings?: Record<number, SegmentMeaning> | null;
+  /**
+   * When set, and the supplied word list carries a `translationEn` for every word
+   * of a chunk, that chunk's meaning is the joined glosses of exactly its own
+   * words (`wordGloss: true`) under this pack id and language. Pass `true` to take
+   * the documented word-pack defaults (`WORD_GLOSS_PACK_ID` / `WORD_GLOSS_LANG`).
+   * `meanings` wins for a position where both are supplied, so an explicit pack
+   * clause is never overwritten by a stitched gloss.
+   */
+  wordGlossSource?: MeaningSourceLabel | boolean | null;
 }
 
 export interface SegmentationResult {
@@ -205,7 +237,12 @@ function spansFromBoundaries(
     spans.push({ fromWord: start, toWord: b.wordPosition - 1 });
     start = b.wordPosition;
   }
-  spans.push({ fromWord: start, toWord: wordCount });
+  // Only close out a trailing span when there is an uncovered word left. An
+  // ayah with no word tokens (`wordCount === 0`) has nothing to cover, so it
+  // gets no segment — matching `assertTiling`, which requires zero segments for
+  // a wordless ayah. Emitting `{fromWord: 1, toWord: 0}` here would create a
+  // wordless chunk that surfaces downstream as a dead, unrecordable step.
+  if (start <= wordCount) spans.push({ fromWord: start, toWord: wordCount });
   return spans;
 }
 
@@ -310,6 +347,65 @@ function transitionId(itemId: string, verseKey: string, key: string): string {
   return `${itemId}:${verseKey}:${TRANSITION_ID_TAG}${key}`;
 }
 
+/**
+ * The verse key a fingerprint row's `id` already contains.
+ *
+ * Ids are `{itemId}:{verseKey}:{tag}{n}` and item ids (`hi-…`) carry no colon, so
+ * the ayah is exactly the two digits between them. This is not a second source of
+ * truth: it is how a v1 backup file or a v2 SQLite row, which have no verse_key
+ * column, is read back without asking the user where the chunk came from.
+ */
+export function verseKeyFromFingerprintId(id: string): string | null {
+  const match = /^[^:]+:(\d{1,3}:\d{1,4}):[a-z]/.exec(id);
+  return match ? (match[1] as string) : null;
+}
+
+const VERSE_KEY_RE = /^\d{1,3}:\d{1,4}$/;
+
+/**
+ * Which ayah a segment / anchor / transition row numbers inside.
+ *
+ * The contract field is the answer. The fallback is what a file or a database
+ * written before the column existed still always had: the row's own id spells
+ * the ayah out. Two readers need exactly this reading — `backup/restore.ts`
+ * filling the column, and `backup/validate.ts` deciding whether an absent field
+ * is a legacy row or corruption — so it lives beside the id builders rather than
+ * twice on either side.
+ */
+export function fingerprintVerseKey(row: { verseKey?: unknown; id?: unknown }): string | null {
+  if (typeof row.verseKey === 'string' && VERSE_KEY_RE.test(row.verseKey)) return row.verseKey;
+  return typeof row.id === 'string' ? verseKeyFromFingerprintId(row.id) : null;
+}
+
+/**
+ * Join the per-word glosses the supplied word list carries for exactly this
+ * chunk's positions, as a `wordGloss` meaning.
+ *
+ * Returns null when any covered word has no gloss: half a chunk's meaning would
+ * misrepresent the revelation, so the whole chunk is left untested instead.
+ */
+export function segmentWordGloss(
+  words: readonly HifzWord[],
+  fromWord: number,
+  toWord: number,
+  source: MeaningSourceLabel,
+): SegmentMeaning | null {
+  const covered = words.slice(Math.max(0, fromWord - 1), toWord);
+  if (covered.length === 0 || covered.length !== toWord - fromWord + 1) return null;
+  const glosses = covered.map((w) => (w.translationEn ?? '').trim());
+  if (glosses.some((g) => g.length === 0)) return null;
+  return { text: glosses.join(' '), lang: source.lang, packId: source.packId, wordGloss: true };
+}
+
+/** The caller's meaning label, with `true` expanding to the documented word-pack defaults. */
+function glossSourceOf(input: SegmentAyahInput): MeaningSourceLabel | null {
+  if (input.wordGlossSource === true) {
+    return { packId: WORD_GLOSS_PACK_ID, lang: WORD_GLOSS_LANG };
+  }
+  const source = input.wordGlossSource;
+  return typeof source === 'object' && source !== null ? source : null;
+}
+
 /** Opening / middle / ending / boundary anchors for the segmented ayah. */
 export function deriveAnchors(result: {
   itemId: string;
@@ -338,6 +434,7 @@ export function deriveAnchors(result: {
     out.push({
       id: anchorId(result.itemId, result.verseKey, position),
       itemId: result.itemId,
+      verseKey: result.verseKey,
       wordPosition: position,
       text: word.text,
       role,
@@ -359,6 +456,7 @@ export function deriveTransitions(result: {
     out.push({
       id: transitionId(result.itemId, result.verseKey, String(b.wordPosition)),
       itemId: result.itemId,
+      verseKey: result.verseKey,
       kind: 'intra',
       toVerseKey: null,
       toWord: b.wordPosition,
@@ -372,6 +470,7 @@ export function deriveTransitions(result: {
     out.push({
       id: transitionId(result.itemId, result.verseKey, `next-${result.nextVerseKey}`),
       itemId: result.itemId,
+      verseKey: result.verseKey,
       kind: 'inter',
       toVerseKey: result.nextVerseKey,
       toWord: 1,
@@ -415,24 +514,39 @@ export function segmentAyah(input: SegmentAyahInput): SegmentationResult {
   }
 
   const spans = spansFromBoundaries(chosen, wordCount);
+  const glossSource = glossSourceOf(input);
   const segments: HifzSegment[] = spans.map((span, position) => {
     const text = words
       .slice(span.fromWord - 1, span.toWord)
       .map((w) => w.text)
       .join(' ');
+    const meaning =
+      input.meanings?.[position] ??
+      (glossSource ? segmentWordGloss(words, span.fromWord, span.toWord, glossSource) : null) ??
+      null;
     return {
       id: segmentId(input.itemId, input.verseKey, position),
       itemId: input.itemId,
+      verseKey: input.verseKey,
       position,
       fromWord: span.fromWord,
       toWord: span.toWord,
       text,
-      meaningFa: input.meaningsFa?.[position] ?? null,
-      meaningSource: input.meaningsFa?.[position] ? 'fixture-editorial' : null,
+      meaning,
       stability: FRESH_MEMORY_STABILITY,
+      meaningStability: null,
       errorCount: 0,
     };
   });
+
+  if (segments.length > 0 && (glossSource || input.meanings)) {
+    const untested = segments.filter((s) => s.meaning === null).length;
+    if (untested > 0) {
+      partition.notes.push(
+        `${untested}/${segments.length} segment(s) have no licensed meaning; the meaning axis declines to test them`,
+      );
+    }
+  }
 
   const base = { itemId: input.itemId, verseKey: input.verseKey, wordCount, words, boundaries: chosen };
   return {
