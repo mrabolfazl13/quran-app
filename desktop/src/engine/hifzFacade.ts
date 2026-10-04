@@ -7,12 +7,16 @@
  * from `core/src/hifz` through the adapter in `./coreHifzEngine.ts`.
  *
  * What is stored: hifz items, recall attempts, sessions, daily plans,
- * engine-proposed confusion groups.
- * What is NOT stored: segmentations. `core/src/hifz/review.ts` explicitly
- * estimates the segment/transition factors from item stability when a row set
- * is empty, and re-deriving them at read time is deterministic, so the facade
- * derives structure on demand (`deriveSegmentation`) instead of persisting
- * stability values it has no way to keep current.
+ * engine-proposed confusion groups, and the per-chunk / per-hinge state of the
+ * memory fingerprint — the rows enrolment writes through
+ * `gateway/addHifzItem` and `submitRecall` moves through
+ * `engine.fingerprintUpdate`.
+ * What is NOT stored anywhere above the engine: how those numbers are computed.
+ * `deriveSegmentation` re-derives structure on demand for a screen that wants to
+ * *show* the tiling, because core derives it deterministically from the stored
+ * ayah text; the numbers on the stored rows, though, come only from a graded
+ * attempt, so `review.ts` may still estimate them from item stability when no
+ * attempt has produced them yet.
  *
  * If the adapter's core exports are missing, each method rejects with the typed
  * `EngineNotIntegratedError` and the screens render that as an error state.
@@ -21,13 +25,16 @@
 import type {
   DailyPlan,
   HifzSession,
+  ProbeCue,
   RecallAttempt,
   RecallMode,
   RecitedWord,
   SessionReport,
   VerseKey,
 } from '@quran/core';
+import { attemptDimension } from '@quran/core';
 import type { DataGateway } from '../gateway';
+import { loadMeaningRows } from './meaningSource';
 import {
   EngineNotIntegratedError,
   type AttemptDraft,
@@ -50,7 +57,7 @@ export interface RecallInput {
   mode: RecallMode;
   sessionId: string | null;
   produced: RecitedWord[];
-  cue?: { kind: string; text: string | null } | null;
+  cue?: ProbeCue | null;
   startedAt: string;
   durationMs?: number | null;
   selfConfidence?: number | null;
@@ -174,10 +181,16 @@ export function createHifzFacade(gateway: DataGateway): HifzFacade {
       // own probe for this session and step index — never from the screen, and
       // only when that probe targets the ayah actually being recited.
       let expectedSpan: { fromWord: number; toWord: number } | null = null;
+      let cued: ProbeCue | null = null;
       if (session && input.stepIndex !== null && input.stepIndex !== undefined) {
         const { probe } = await stepProbe(e, ctx, session, input.stepIndex);
-        if (probe && probe.verseKey === input.verseKey && probe.toWord >= probe.fromWord) {
-          expectedSpan = { fromWord: probe.fromWord, toWord: probe.toWord };
+        if (probe && probe.verseKey === input.verseKey) {
+          // The cue the engine built carries the licensed meaning's language and
+          // pack, which the screen receives but must not be trusted to restate.
+          cued = probe.cue;
+          if (probe.toWord >= probe.fromWord) {
+            expectedSpan = { fromWord: probe.fromWord, toWord: probe.toWord };
+          }
         }
       }
       const draft: AttemptDraft = {
@@ -186,7 +199,7 @@ export function createHifzFacade(gateway: DataGateway): HifzFacade {
         sessionId: input.sessionId,
         mode: input.mode,
         produced: input.produced,
-        cue: input.cue ?? null,
+        cue: cued ?? input.cue ?? null,
         startedAt: input.startedAt,
         completedAt,
         durationMs: input.durationMs ?? null,
@@ -202,6 +215,9 @@ export function createHifzFacade(gateway: DataGateway): HifzFacade {
         verseKey: draft.verseKey,
         sessionId: draft.sessionId,
         mode: draft.mode,
+        // Core's rule, not the screen's claim: a meaning drill is stored on the
+        // meaning axis because its mode says so.
+        dimension: attemptDimension({ mode: draft.mode }),
         startedAt: draft.startedAt,
         completedAt: draft.completedAt,
         produced: draft.produced,
@@ -215,6 +231,22 @@ export function createHifzFacade(gateway: DataGateway): HifzFacade {
         usedAudio: draft.usedAudio,
       };
       await gateway.saveRecallAttempt(attempt);
+
+      // The per-chunk and per-hinge numbers move on core's rule, from the same
+      // span the step was graded over: an item's overall stability says the ayah
+      // is at 0.6, this says *which clause* went. Only the rows the engine
+      // returns are written, so a recitation cannot flatter a chunk nobody recited.
+      const fingerprint = e.fingerprintUpdate(ctx, {
+        itemId: draft.itemId,
+        verseKey: draft.verseKey,
+        mode: draft.mode,
+        accuracy: scored.accuracy,
+        span: expectedSpan,
+        errors: scored.errors,
+        at: completedAt,
+      });
+      await gateway.updateHifzSegments(fingerprint.segments);
+      await gateway.updateHifzTransitions(fingerprint.transitions);
 
       for (const next of e.recomputeItems(ctx, [draft.itemId])) {
         const item = ctx.items.find((i) => i.id === next.itemId);
@@ -288,11 +320,30 @@ export async function buildContext(gateway: DataGateway, now: Date): Promise<Hif
     gateway.hifzTransitions(),
     gateway.allAyahTexts(),
   ]);
+  // The keys the meaning layer is asked about: every ayah the learner holds, and
+  // the ayah before each, because a concept cue is built from that predecessor's
+  // licensed meaning. Asking for the whole mushaf would read tens of thousands of
+  // word rows for the dozen ayahs today's session can actually touch.
+  const wanted = new Set<string>();
+  for (const item of items) {
+    wanted.add(item.verseKey);
+    for (const key of item.sequence) wanted.add(key);
+  }
+  const predecessors = new Map<string, string>();
+  ayahRows.forEach((row, index) => {
+    if (index > 0) predecessors.set(row.verseKey, ayahRows[index - 1]!.verseKey);
+  });
+  for (const key of [...wanted]) {
+    const previous = predecessors.get(key);
+    if (previous) wanted.add(previous);
+  }
+  // Keys of the form `chapter:verse`, which is what `VerseKey` names.
+  const { meanings, wordsByVerseKey } = await loadMeaningRows(gateway, [...wanted] as VerseKey[]);
   const ayahs = ayahRows.map((a) => ({
     verseKey: a.verseKey as string,
     textUthmani: a.textUthmani,
     wordCount: a.wordCount,
-    words: null as null,
+    words: wordsByVerseKey[a.verseKey as string] ?? null,
   }));
   const newAyahs = items
     .filter((i) => i.status === 'active' && i.band === 'new' && i.attemptCount === 0)
@@ -310,5 +361,6 @@ export async function buildContext(gateway: DataGateway, now: Date): Promise<Hif
     ayahs,
     newAyahs,
     newAyahWordCounts: wordCounts,
+    meanings,
   };
 }

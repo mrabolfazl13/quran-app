@@ -26,14 +26,17 @@ import type {
   ConfusionGroup,
   DailyPlan,
   DetectedError,
+  FingerprintAttemptView,
   HifzItem,
   HifzSegment,
   HifzSession,
   HifzTransition,
+  ProbeCue,
   RecallAttempt,
   RecallMode,
   RecitedWord,
   RecallProbe,
+  SegmentMeaning,
   SessionReport,
   AyahWord,
 } from '@quran/core';
@@ -57,6 +60,14 @@ export interface HifzContext {
   newAyahs: string[];
   /** Words per new ayah, so the plan's cost model is measured not guessed. */
   newAyahWordCounts: Record<string, number>;
+  /**
+   * Which verses a licensed meaning actually covers, keyed by verse key. The
+   * caller reads these out of the imported translation pack — the engine never
+   * looks a meaning up and never writes one. A key with `null` (or no key) means
+   * the meaning axis has no cue to test that ayah with, so the meaning phases
+   * emit no step for it and the form axis alone decides what is due.
+   */
+  meanings: Record<string, SegmentMeaning | null>;
 }
 
 export interface HifzContextAyah {
@@ -73,7 +84,12 @@ export interface AttemptDraft {
   sessionId: string | null;
   mode: RecallMode;
   produced: RecitedWord[];
-  cue: { kind: string; text: string | null } | null;
+  /**
+   * What the learner was actually shown. Typed as core's `ProbeCue` so a meaning
+   * cue keeps the `lang`/`packId` provenance that the stored attempt needs —
+   * an unattributed gloss of revealed text is not usable.
+   */
+  cue: ProbeCue | null;
   startedAt: string;
   completedAt: string;
   durationMs: number | null;
@@ -139,6 +155,19 @@ export interface SegmentationOutcome {
   notes: string[];
 }
 
+/**
+ * The stored fingerprint rows one graded recitation moved, and nothing else.
+ *
+ * Rows the attempt was not entitled to score are absent, so the caller writes
+ * only what changed instead of re-issuing every chunk of the item on every
+ * attempt. Which rows those are is core's rule (`applyAttemptToStoredSegments`
+ * in `core/src/hifz/stability.ts`), never the caller's judgement.
+ */
+export interface FingerprintUpdate {
+  segments: HifzSegment[];
+  transitions: HifzTransition[];
+}
+
 export interface HifzEngine {
   /** Engine version, reported verbatim on the Data health screen. */
   readonly version: number;
@@ -160,6 +189,16 @@ export interface HifzEngine {
   probe(ctx: HifzContext, request: ProbeRequest): ProbeOutcome;
   /** Segment a stored item's ayah with core's boundary rules. */
   segmentItem(ctx: HifzContext, itemId: string, nextVerseKey?: string | null): SegmentationOutcome | null;
+  /**
+   * Which stored chunks and hinges a recitation grades, with their new values.
+   *
+   * The span comes from the probe the engine built for the step, so a chunk is
+   * only ever scored by a recitation that covered it entirely — the per-chunk
+   * numbers the fingerprint screen and the scheduler's weak-segment factor read
+   * are measurements of those chunks, not the item's overall stability copied
+   * onto them.
+   */
+  fingerprintUpdate(ctx: HifzContext, attempt: FingerprintAttemptView): FingerprintUpdate;
   /** Attach a recorded attempt to a session step without mutating the session. */
   recordStepAttempt(
     session: HifzSession,

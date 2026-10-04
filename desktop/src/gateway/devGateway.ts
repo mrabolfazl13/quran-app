@@ -37,6 +37,7 @@ import type {
 } from '@quran/core';
 import { BACKUP_SCHEMA_VERSION, buildEnvelope, computeDataChecksum, serializeEnvelope } from '@quran/core';
 import { buildImportPlan, failedImportReport } from '../content/importer';
+import { anchorKey, buildSegmentation, transitionKey, uniqueBy } from './segmentation';
 import { createFetchPackSource, type PackSource } from '../content/packSource';
 import { MemorySearchService, collectRawSearchDocs, type RawSearchDoc } from './search';
 import { plansForEnvelope, planRowsFromEnvelope } from './tauriGateway';
@@ -424,6 +425,13 @@ export class DevGateway implements DataGateway {
     return this.content.words.filter((w) => w.verseKey === verseKey).sort((a, b) => a.position - b.position);
   }
 
+  async wordsFor(verseKeys: VerseKey[]): Promise<AyahWordRow[]> {
+    const wanted = new Set(verseKeys);
+    return this.content.words
+      .filter((w) => wanted.has(w.verseKey))
+      .sort((a, b) => a.verseKey.localeCompare(b.verseKey) || a.position - b.position);
+  }
+
   async translationOptions(): Promise<TranslationOption[]> {
     const packs = this.content.packs.filter((p) => p.kind === 'translation');
     return packs.map((p) => ({
@@ -581,6 +589,10 @@ export class DevGateway implements DataGateway {
   }
 
   async addHifzItem(verseKey: VerseKey, sequence?: VerseKey[]): Promise<HifzItem> {
+    // Same rule as the SQLite shell: one live track per verse, so a double click
+    // cannot make the scheduler book the same ayah twice.
+    const live = this.user.hifzItems.find((x) => x.verseKey === verseKey && x.status !== 'dropped');
+    if (live) return live;
     const item: HifzItem = {
       id: `hi-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
       verseKey,
@@ -589,6 +601,10 @@ export class DevGateway implements DataGateway {
       status: 'active',
       band: 'new',
       stability: 0,
+      // same pair the Tauri gateway enrols with: a fresh item has never been
+      // probed on either axis, and the meaning axis says so as NULL
+      formStability: 0,
+      meaningStability: null,
       strength: 0,
       lastReviewedAt: null,
       nextReviewAt: null,
@@ -596,6 +612,24 @@ export class DevGateway implements DataGateway {
       errorCount: 0,
     };
     this.user.hifzItems = [item, ...this.user.hifzItems];
+    // Enrolment is one unit on this path too. The chunks are derived by the same
+    // `gateway/segmentation.ts` the SQLite shell calls, over this shell's
+    // in-memory corpus, so a web user and a desktop user get the same segments
+    // for the same ayah — and the fingerprint screen has rows to list either way.
+    const rows = await buildSegmentation(item, {
+      ayahText: async (verseKey) => this.content.ayahs.find((a) => a.verseKey === verseKey)?.textUthmani ?? null,
+      wordRows: async (verseKey) =>
+        this.content.words.filter((w) => w.verseKey === verseKey).sort((a, b) => a.position - b.position),
+      glossSource: async () => {
+        const pack = this.content.packs.find((p) => p.kind === 'word-data');
+        // The language is fixed by the column the gloss is read from
+        // (`ayah_word.translation_en`), not by that pack's own `language`.
+        return pack ? { packId: pack.id, lang: 'en' as const } : null;
+      },
+    });
+    this.user.segments = [...this.user.segments, ...rows.segments];
+    this.user.anchors = uniqueBy([...this.user.anchors, ...rows.anchors], anchorKey);
+    this.user.transitions = uniqueBy([...this.user.transitions, ...rows.transitions], transitionKey);
     this.touch();
     return item;
   }
@@ -605,6 +639,11 @@ export class DevGateway implements DataGateway {
     this.user.segments = this.user.segments.filter((s) => s.itemId !== id);
     this.user.anchors = this.user.anchors.filter((a) => a.itemId !== id);
     this.user.transitions = this.user.transitions.filter((t) => t.itemId !== id);
+    // `hifz_attempt.item_id` is `ON DELETE CASCADE` in `db.sql`, and the confirm
+    // text promises the same, so an attempt that outlives its item is a divergence
+    // between the two stores — the orphan still feeds stability, the review queue
+    // and the backup counts for an ayah the learner removed.
+    this.user.attempts = this.user.attempts.filter((a) => a.itemId !== id);
     this.touch();
   }
 
@@ -636,6 +675,41 @@ export class DevGateway implements DataGateway {
 
   async hifzTransitions(itemId?: string): Promise<HifzTransition[]> {
     return itemId ? this.user.transitions.filter((t) => t.itemId === itemId) : this.user.transitions;
+  }
+
+  /**
+   * Fingerprint state by id, like the SQLite shell: a row this store does not
+   * hold is left alone rather than created, and the tiling columns are not part
+   * of the write, so an attempt can never renumber a chunk.
+   */
+  async updateHifzSegments(segments: HifzSegment[]): Promise<void> {
+    if (segments.length === 0) return;
+    const byId = new Map(segments.map((s) => [s.id, s]));
+    this.user.segments = this.user.segments.map((row) => {
+      const next = byId.get(row.id);
+      return next === undefined
+        ? row
+        : { ...row, stability: next.stability, meaningStability: next.meaningStability, errorCount: next.errorCount };
+    });
+    this.touch();
+  }
+
+  async updateHifzTransitions(transitions: HifzTransition[]): Promise<void> {
+    if (transitions.length === 0) return;
+    const byId = new Map(transitions.map((t) => [t.id, t]));
+    this.user.transitions = this.user.transitions.map((row) => {
+      const next = byId.get(row.id);
+      return next === undefined
+        ? row
+        : {
+            ...row,
+            successCount: next.successCount,
+            failureCount: next.failureCount,
+            stability: next.stability,
+            lastPracticedAt: next.lastPracticedAt,
+          };
+    });
+    this.touch();
   }
 
   async recallAttempts(itemId?: string, limit = 500): Promise<RecallAttempt[]> {

@@ -10,6 +10,8 @@
  * degrades to the typed `EngineNotIntegratedError`.
  */
 import {
+  applyAttemptToStoredSegments,
+  applyAttemptToStoredTransitions,
   attemptToStabilityAttempt,
   buildDailyPlan,
   buildProbe,
@@ -26,14 +28,17 @@ import {
   type AnchorWord,
   type ProbeAyah,
   type DailyPlan,
+  type FingerprintAttemptView,
   type HifzSegment,
   type HifzTransition,
   type RecallAttempt,
+  type SegmentMeaning,
   type VerseKey,
 } from '@quran/core';
 import type {
   AttemptDraft,
   ClassifiedAttempt,
+  FingerprintUpdate,
   HifzContext,
   HifzEngine,
   ItemRecomputation,
@@ -57,6 +62,8 @@ export const REQUIRED_HIFZ_EXPORTS = [
   'groupIdFor',
   'segmentAyah',
   'buildProbe',
+  'applyAttemptToStoredSegments',
+  'applyAttemptToStoredTransitions',
 ] as const;
 
 export interface CoreHifzModule {
@@ -73,6 +80,8 @@ export interface CoreHifzModule {
   groupIdFor: typeof groupIdFor;
   segmentAyah: typeof segmentAyah;
   buildProbe: typeof buildProbe;
+  applyAttemptToStoredSegments: typeof applyAttemptToStoredSegments;
+  applyAttemptToStoredTransitions: typeof applyAttemptToStoredTransitions;
 }
 
 export function pickCoreHifzModule(
@@ -119,6 +128,46 @@ function nextVerseKeyOf(ctx: HifzContext, verseKey: string | null): string | nul
   return ctx.ayahs[index + 1]!.verseKey;
 }
 
+/** The ayah before this one in mushaf order — what a concept cue is built from. */
+function prevVerseKeyOf(ctx: HifzContext, verseKey: string | null): string | null {
+  if (!verseKey) return null;
+  const index = ctx.ayahs.findIndex((a) => a.verseKey === verseKey);
+  if (index <= 0) return null;
+  return ctx.ayahs[index - 1]!.verseKey;
+}
+
+/**
+ * The licensed meaning of one ayah, as core's `SegmentMeaning`.
+ *
+ * A meaning the app cannot attribute is not a meaning: the text, the pack it came
+ * from and its language all have to be present, or the caller gets null and the
+ * meaning axis stays unprobed for that ayah.
+ */
+function meaningOf(ctx: HifzContext, verseKey: string | null): SegmentMeaning | null {
+  if (!verseKey) return null;
+  return ctx.meanings[verseKey] ?? null;
+}
+
+/**
+ * Meaning rows for the ayahs a session touches. `previousMeaning` is the mushaf
+ * predecessor's licensed meaning, so a concept cue only ever asks the learner to
+ * continue from a sense this install actually has.
+ */
+function meaningRows(ctx: HifzContext, verseKeys: readonly string[]) {
+  const out: { verseKey: string; meaning: SegmentMeaning | null; previousMeaning: SegmentMeaning | null }[] = [];
+  const seen = new Set<string>();
+  for (const verseKey of verseKeys) {
+    if (seen.has(verseKey)) continue;
+    seen.add(verseKey);
+    out.push({
+      verseKey,
+      meaning: meaningOf(ctx, verseKey),
+      previousMeaning: meaningOf(ctx, prevVerseKeyOf(ctx, verseKey)),
+    });
+  }
+  return out;
+}
+
 /**
  * The ayahs that follow any of this item's known confusions — used to name a
  * wrong transition instead of reporting a generic mismatch.
@@ -157,6 +206,8 @@ export function createCoreHifzEngine(module?: CoreHifzModule): HifzEngine {
     groupIdFor,
     segmentAyah,
     buildProbe,
+    applyAttemptToStoredSegments,
+    applyAttemptToStoredTransitions,
   };
 
   const planInput = (ctx: HifzContext) => ({
@@ -168,6 +219,7 @@ export function createCoreHifzEngine(module?: CoreHifzModule): HifzEngine {
     confusionGroups: ctx.confusionGroups,
     newAyahs: ctx.newAyahs,
     newAyahWordCounts: ctx.newAyahWordCounts,
+    meanings: ctx.meanings,
   });
 
   return {
@@ -201,6 +253,10 @@ export function createCoreHifzEngine(module?: CoreHifzModule): HifzEngine {
         transitions: ctx.transitions,
         confusionGroups: ctx.confusionGroups,
         nowIso: ctx.now,
+        // Without this the meaning phases emit nothing at all, and the whole
+        // conceptual axis of the method stays dark no matter how well the engine
+        // implements it.
+        meanings: meaningRows(ctx, ayahs.map((a) => a.verseKey)),
         ...(plannedSteps > 0 ? { phaseCap: plannedSteps } : {}),
       });
       const id = `sess-${ctx.now.replace(/[:.]/g, '-')}`;
@@ -217,7 +273,10 @@ export function createCoreHifzEngine(module?: CoreHifzModule): HifzEngine {
         confusionCandidates: draft.confusionCandidates ?? [],
         continuations: draft.continuations ?? continuationsFor(ctx, draft.verseKey),
         segments: ctx.segments
-          .filter((s) => s.itemId === draft.itemId)
+          // Only the ayah being recited: `position` restarts per ayah, so an
+          // item-wide span list would let `segmentFor` attribute an error to a
+          // chunk of a different ayah that happens to share the number.
+          .filter((s) => s.itemId === draft.itemId && s.verseKey === draft.verseKey)
           .map((s) => ({ position: s.position, fromWord: s.fromWord, toWord: s.toWord })),
         span: draft.expectedSpan ?? null,
       });
@@ -282,6 +341,7 @@ export function createCoreHifzEngine(module?: CoreHifzModule): HifzEngine {
       if (!request.verseKey) return { probe: null, reason: 'no-step-ayah' };
       const text = textOf(ctx, request.verseKey);
       if (text.length === 0) return { probe: null, reason: 'ayah-text-not-installed' };
+      const verseKey: string = request.verseKey;
       const ayah = {
         itemId: request.itemId,
         verseKey: vk(request.verseKey),
@@ -299,34 +359,76 @@ export function createCoreHifzEngine(module?: CoreHifzModule): HifzEngine {
         : undefined;
 
       let segment: HifzSegment | undefined;
-      if (request.mode === 'segment') {
-        // Segments are structure, not state: they come from core's boundary
-        // rules over the authoritative text, which is why they are derived here
-        // instead of being stored with a stability value nothing keeps current.
+      // Segments are structure, not state: they come from core's boundary rules
+      // over the authoritative text, which is why they are derived here instead
+      // of being stored with a stability value nothing keeps current. The word
+      // gloss source makes each chunk's meaning the licensed `word-data` glosses
+      // of exactly its own words — a meaning the app can attribute, or none.
+      const segmentsOfItem = (): HifzSegment[] => {
         const stored = ctx.segments.filter((row) => row.itemId === request.itemId);
-        const segments = stored.length > 0 ? stored : core.segmentAyah({
+        if (stored.length > 0) return stored;
+        const words = wordRowsOf(ctx, request.verseKey);
+        return core.segmentAyah({
           itemId: request.itemId ?? '',
-          verseKey: request.verseKey,
+          verseKey,
           text,
-          words: wordRowsOf(ctx, request.verseKey),
+          words,
           nextVerseKey: request.nextVerseKey ?? nextVerseKeyOf(ctx, request.verseKey),
+          ...(words && words.length > 0 ? { wordGlossSource: true as const } : {}),
         }).segments;
+      };
+      const weakestOf = (rows: HifzSegment[]) =>
+        rows.reduce<HifzSegment | undefined>(
+          (weakest, row) => (weakest === undefined || row.stability < weakest.stability ? row : weakest),
+          undefined,
+        );
+
+      if (request.mode === 'segment') {
+        // The probe recites `verseKey`, so it is offered a chunk of that ayah.
+        // Any numbering that ran past the ayah boundary is gone: the stored rows
+        // carry their own `verseKey`, and `segmentPosition` counts inside it.
+        const segments = segmentsOfItem().filter((row) => row.verseKey === verseKey);
         segment =
           (request.segmentPosition !== undefined
             ? segments.find((row) => row.position === request.segmentPosition)
-            : undefined) ??
-          segments.reduce<HifzSegment | undefined>(
-            (weakest, row) => (weakest === undefined || row.stability < weakest.stability ? row : weakest),
-            undefined,
-          );
+            : undefined) ?? weakestOf(segments);
         if (!segment) return { probe: null, reason: 'item-has-no-segments' };
       }
       if ((request.mode === 'transition' || request.mode === 'continue-sequence' || request.mode === 'full-sequence') && !next) {
         return { probe: null, reason: 'no-next-ayah' };
       }
       const boundary = request.itemId
-        ? ctx.transitions.find((t) => t.itemId === request.itemId && t.kind === 'intra')?.toWord
+        ? ctx.transitions.find(
+            (t) => t.itemId === request.itemId && t.verseKey === verseKey && t.kind === 'intra',
+          )?.toWord
         : undefined;
+
+      // The meaning axis is cued only by a meaning this install can attribute.
+      // Anything else is an honest refusal the screen shows as a reason, never a
+      // paraphrase invented here.
+      let meaning: SegmentMeaning | null = null;
+      let previousMeaning: SegmentMeaning | null = null;
+      /** Set only for a chunk-scoped gloss cue: the span must be what it means. */
+      let meaningSpan: { fromWord: number; toWord: number } | null = null;
+      if (request.mode === 'meaning-to-arabic') {
+        meaning = meaningOf(ctx, request.verseKey);
+        if (meaning === null) {
+          // No ayah-level clause: fall back to the chunk's own licensed gloss, so
+          // a segment-scoped meaning drill still has a cue. Its span is then
+          // exactly the words that gloss covers — grading the whole ayah against
+          // a three-word meaning would fail the learner for words nobody asked.
+          segment = segment ?? weakestOf(segmentsOfItem());
+          if (!segment || !segment.meaning) {
+            return { probe: null, reason: 'no-licensed-meaning-for-ayah' };
+          }
+          meaning = segment.meaning;
+          meaningSpan = { fromWord: segment.fromWord, toWord: segment.toWord };
+        }
+      }
+      if (request.mode === 'concept-cue') {
+        previousMeaning = meaningOf(ctx, prevVerseKeyOf(ctx, request.verseKey));
+        if (previousMeaning === null) return { probe: null, reason: 'no-licensed-meaning-for-previous-ayah' };
+      }
 
       try {
         const probe = core.buildProbe(request.mode, {
@@ -337,6 +439,11 @@ export function createCoreHifzEngine(module?: CoreHifzModule): HifzEngine {
           seed: `${request.seed}:${request.verseKey}`,
           ...(boundary !== undefined ? { boundaryWord: boundary, transitionKind: 'intra' as const } : { transitionKind: 'inter' as const }),
           ...(request.audioPackId ? { audioPackId: request.audioPackId } : {}),
+          ...(meaning ? { meaning } : {}),
+          ...(meaningSpan ? { meaningFromWord: meaningSpan.fromWord, meaningToWord: meaningSpan.toWord } : {}),
+          ...(previousMeaning
+            ? { previousMeaning, previousVerseKey: vk(prevVerseKeyOf(ctx, request.verseKey) ?? '') }
+            : {}),
         });
         return { probe, reason: null };
       } catch (err) {
@@ -349,12 +456,16 @@ export function createCoreHifzEngine(module?: CoreHifzModule): HifzEngine {
       if (!item) return null;
       const text = textOf(ctx, item.verseKey);
       if (text.length === 0) return null;
+      const words = wordRowsOf(ctx, item.verseKey);
       const result = core.segmentAyah({
         itemId,
         verseKey: item.verseKey,
         text,
-        words: wordRowsOf(ctx, item.verseKey),
+        words,
         nextVerseKey: nextVerseKey ?? item.sequence[1] ?? null,
+        // Each chunk's meaning is the licensed gloss of exactly its own words,
+        // attributed to the word pack, or the chunk stays meaning-less.
+        ...(words && words.length > 0 ? { wordGlossSource: true as const } : {}),
       });
       return {
         segments: result.segments,
@@ -362,6 +473,18 @@ export function createCoreHifzEngine(module?: CoreHifzModule): HifzEngine {
         transitions: result.transitions,
         wordCount: result.wordCount,
         notes: result.notes,
+      };
+    },
+
+    fingerprintUpdate(ctx, attempt: FingerprintAttemptView): FingerprintUpdate {
+      // Core keeps an untouched row as the very same object, so identity is how
+      // "did this attempt move this row?" is read here — no field-by-field
+      // comparison that a future column could slip past.
+      const nextSegments = core.applyAttemptToStoredSegments(ctx.segments, attempt);
+      const nextTransitions = core.applyAttemptToStoredTransitions(ctx.transitions, attempt);
+      return {
+        segments: nextSegments.filter((row, index) => row !== ctx.segments[index]),
+        transitions: nextTransitions.filter((row, index) => row !== ctx.transitions[index]),
       };
     },
 

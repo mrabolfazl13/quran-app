@@ -358,6 +358,12 @@ export interface DataGateway {
   ayahsByJuz(juz: number): Promise<AyahRow[]>;
   juzList(): Promise<JuzSummary[]>;
   words(verseKey: VerseKey): Promise<AyahWordRow[]>;
+  /**
+   * Word rows for many ayahs at once. The hifz context needs the gloss of every
+   * ayah the learner is holding; asking ayah by ayah would be one serialised
+   * statement each, and the queue is one connection.
+   */
+  wordsFor(verseKeys: VerseKey[]): Promise<AyahWordRow[]>;
   translationOptions(): Promise<TranslationOption[]>;
   translations(verseKeys: VerseKey[], packId: string): Promise<Map<VerseKey, string>>;
   tafsirFor(verseKey: VerseKey): Promise<TafsirRow[]>;
@@ -384,16 +390,38 @@ export interface DataGateway {
   recentReading(limit: number): Promise<ReadingHistoryEntry[]>;
 
   hifzItems(status?: HifzItemStatus): Promise<HifzItem[]>;
+  /**
+   * Enrol one verse. Idempotent while a live item for the same key exists:
+   * adding `112:1` twice returns the row that is already in the plan rather than
+   * opening a second memory track the scheduler would double-book. A key whose
+   * item was `dropped` starts a fresh track.
+   */
   addHifzItem(verseKey: VerseKey, sequence?: VerseKey[]): Promise<HifzItem>;
   removeHifzItem(id: string): Promise<void>;
   setHifzItemStatus(id: string, status: HifzItemStatus): Promise<void>;
   /** Upsert written by the hifz facade after the engine recomputes an item. */
   upsertHifzItem(item: HifzItem): Promise<void>;
   saveRecallAttempt(attempt: RecallAttempt): Promise<void>;
-  /** Engine-produced rows; empty until the memory engine lands (never faked). */
+  /**
+   * The stored fingerprint of an item, written by the segmentation path when the
+   * item is enrolled. Each row names the ayah its position counts from.
+   */
   hifzSegments(itemId?: string): Promise<HifzSegment[]>;
   anchorWords(itemId?: string): Promise<AnchorWord[]>;
   hifzTransitions(itemId?: string): Promise<HifzTransition[]>;
+  /**
+   * Fingerprint state written back after a graded recitation, for the chunks the
+   * engine says it covered.
+   *
+   * Only the stateful columns are touched — the two stability values and the
+   * error count. The tiling (`position`, `from_word`, `to_word`, `text`) and the
+   * licensed meaning columns are core's derivation from revelation and are never
+   * rewritten by an attempt; a row whose id this store does not hold is skipped,
+   * not created.
+   */
+  updateHifzSegments(segments: HifzSegment[]): Promise<void>;
+  /** The same for the hinges: the two counters, the stability and the last practice time. */
+  updateHifzTransitions(transitions: HifzTransition[]): Promise<void>;
   recallAttempts(itemId?: string, limit?: number): Promise<RecallAttempt[]>;
   confusionGroups(): Promise<ConfusionGroup[]>;
   saveConfusionGroup(group: ConfusionGroup): Promise<void>;

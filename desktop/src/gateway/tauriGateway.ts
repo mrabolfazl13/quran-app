@@ -41,13 +41,25 @@ import type {
   ReadingHistoryEntry,
   ReadingPosition,
   RecallAttempt,
+  RecallDimension,
+  SegmentMeaning,
   SimilarAyahPair,
   Surah,
   VerseKey,
 } from '@quran/core';
-import { BACKUP_SCHEMA_VERSION, buildEnvelope, canonicalJsonStringify, computeDataChecksum, serializeEnvelope } from '@quran/core';
+import {
+  applyRestore,
+  BACKUP_SCHEMA_VERSION,
+  buildEnvelope,
+  canonicalJsonStringify,
+  RECALL_DIMENSION,
+  serializeEnvelope,
+  type RestoreDatabase,
+  type RestoreResult,
+} from '@quran/core';
 import { ensureSchema, META_KEYS, SCHEMA_VERSION, type SqlClient } from '../db/schema';
-import { insertRows } from './batchInsert';
+import { insertRows, MAX_PARAMS_PER_STATEMENT } from './batchInsert';
+import { buildSegmentation } from './segmentation';
 import { buildImportPlan } from '../content/importer';
 import {
   createTauriPackSource,
@@ -895,6 +907,23 @@ export class TauriGateway implements DataGateway {
     return rows.map(wordFrom);
   }
 
+  async wordsFor(verseKeys: VerseKey[]): Promise<AyahWordRow[]> {
+    if (verseKeys.length === 0) return [];
+    const out: AyahWordRow[] = [];
+    // Chunked by the parameter ceiling: a hifz list can be longer than the
+    // bound parameters one SQLite statement accepts.
+    for (let at = 0; at < verseKeys.length; at += MAX_PARAMS_PER_STATEMENT) {
+      const chunk = verseKeys.slice(at, at + MAX_PARAMS_PER_STATEMENT);
+      const marks = chunk.map(() => '?').join(',');
+      const rows = await this.client().select<DbWord>(
+        `SELECT * FROM ayah_word WHERE verse_key IN (${marks}) ORDER BY verse_key, position`,
+        [...chunk],
+      );
+      out.push(...rows.map(wordFrom));
+    }
+    return out;
+  }
+
   async translationOptions(): Promise<TranslationOption[]> {
     const rows = await this.client().select<{
       pack_id: string;
@@ -1247,43 +1276,87 @@ export class TauriGateway implements DataGateway {
   }
 
   async addHifzItem(verseKey: VerseKey, sequence?: VerseKey[]): Promise<HifzItem> {
-    const db = this.require();
-    const item: HifzItem = {
-      id: `hi-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-      verseKey,
-      sequence: sequence && sequence.length > 0 ? sequence : [verseKey],
-      addedAt: new Date().toISOString(),
-      status: 'active',
-      band: 'new',
-      stability: 0,
-      strength: 0,
-      lastReviewedAt: null,
-      nextReviewAt: null,
-      attemptCount: 0,
-      errorCount: 0,
-    };
-    await this.enqueue(() =>
-      db.execute(
-        `INSERT INTO hifz_item (id, verse_key, sequence, added_at, status, band, stability, strength,
-            last_reviewed_at, next_review_at, attempt_count, error_count)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [
-          item.id,
-          item.verseKey,
-          JSON.stringify(item.sequence),
-          item.addedAt,
-          item.status,
-          item.band,
-          item.stability,
-          item.strength,
-          null,
-          null,
-          0,
-          0,
-        ],
-      ),
-    );
-    return item;
+    const db = this.rawClient();
+    return this.enqueue(async () => {
+      const live = await db.select<DbHifzItem>(
+        `SELECT * FROM hifz_item WHERE verse_key = ? AND status <> 'dropped'
+         ORDER BY added_at ASC LIMIT 1`,
+        [verseKey],
+      );
+      if (live[0]) return hifzItemFrom(live[0]);
+      const item: HifzItem = {
+        id: `hi-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        verseKey,
+        sequence: sequence && sequence.length > 0 ? sequence : [verseKey],
+        addedAt: new Date().toISOString(),
+        status: 'active',
+        band: 'new',
+        // Both axes start untested. `meaningStability` is `null` and not `0`: a
+        // brand-new item has never been probed on either axis, and the meaning
+        // number the list shows must be able to say *no data* rather than
+        // *tested and failed*.
+        stability: 0,
+        formStability: 0,
+        meaningStability: null,
+        strength: 0,
+        lastReviewedAt: null,
+        nextReviewAt: null,
+        attemptCount: 0,
+        errorCount: 0,
+      };
+      // The item and its chunks are one unit: an insert that wrote the item and
+      // then failed on the segmentation would leave exactly the half-enrolled
+      // state this method used to create on purpose. Queued, so the `BEGIN` is on
+      // the same connection as its statements (see the module header).
+      await db.execute('BEGIN');
+      try {
+        await db.execute(HIFZ_ITEM_UPSERT, hifzItemParams(item));
+        await this.writeSegments(db, item);
+        await db.execute('COMMIT');
+      } catch (error) {
+        await db.execute('ROLLBACK').catch(() => undefined);
+        throw error;
+      }
+      return item;
+    });
+  }
+
+  /**
+   * Enrol the engine's own segmentation beside a new item — the defect the e2e
+   * journey used to record: `hifz_item` was enrolled and nothing else, so on a
+   * fresh database `hifzSegments()` answered `[]`, the fingerprint screen had no
+   * chunks to list, and every segment-level number the engine computes had
+   * nothing to attach to.
+   *
+   * How the chunks are derived is `gateway/segmentation.ts`, which the browser
+   * shell calls with the same item; this method only says where its rows go.
+   */
+  private async writeSegments(db: SqlClient, item: HifzItem): Promise<void> {
+    const { segments, anchors, transitions } = await buildSegmentation(item, {
+      ayahText: async (verseKey) => {
+        const rows = await db.select<{ text_uthmani: string | null }>(
+          'SELECT text_uthmani FROM ayah WHERE verse_key = ?',
+          [verseKey],
+        );
+        return rows[0]?.text_uthmani ?? null;
+      },
+      wordRows: async (verseKey) =>
+        (await db.select<DbWord>('SELECT * FROM ayah_word WHERE verse_key = ? ORDER BY position', [verseKey])).map(wordFrom),
+      // `word-data` is the contract id (`core/src/hifz/params.ts`); if this
+      // database has never imported it, there is no honest `packId` to write and
+      // the meaning columns stay NULL. The language is fixed by the column the
+      // gloss is read from (`ayah_word.translation_en`), not by that pack's own
+      // `language` row — it is the Arabic word pack, and its glosses are English.
+      glossSource: async () => {
+        const rows = await db.select<{ id: string }>("SELECT id FROM content_pack WHERE kind = 'word-data' ORDER BY id LIMIT 1");
+        const id = rows[0]?.id;
+        return id ? { packId: id, lang: 'en' as const } : null;
+      },
+    });
+
+    await insertRows(db, 'hifz_segment', [...HIFZ_SEGMENT_COLUMNS], segments.map(hifzSegmentParams));
+    await insertRows(db, 'anchor_word', [...ANCHOR_WORD_COLUMNS], anchors.map(anchorParams));
+    await insertRows(db, 'hifz_transition', [...HIFZ_TRANSITION_COLUMNS], transitions.map(transitionParams));
   }
 
   async removeHifzItem(id: string): Promise<void> {
@@ -1298,87 +1371,44 @@ export class TauriGateway implements DataGateway {
 
   async upsertHifzItem(item: HifzItem): Promise<void> {
     const db = this.require();
-    await this.enqueue(() =>
-      db.execute(
-        `INSERT INTO hifz_item (id, verse_key, sequence, added_at, status, band, stability, strength,
-             last_reviewed_at, next_review_at, attempt_count, error_count)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-         ON CONFLICT(id) DO UPDATE SET status = excluded.status, band = excluded.band,
-           stability = excluded.stability, strength = excluded.strength,
-           last_reviewed_at = excluded.last_reviewed_at, next_review_at = excluded.next_review_at,
-           attempt_count = excluded.attempt_count, error_count = excluded.error_count`,
-        [
-          item.id,
-          item.verseKey,
-          JSON.stringify(item.sequence),
-          item.addedAt,
-          item.status,
-          item.band,
-          item.stability,
-          item.strength,
-          item.lastReviewedAt,
-          item.nextReviewAt,
-          item.attemptCount,
-          item.errorCount,
-        ],
-      ),
-    );
+    // Same statement enrol uses: a facade that recomputed an item must not be
+    // able to write a narrower column list than the one that created it, or the
+    // axes it just moved silently stay at their old value.
+    await this.enqueue(() => db.execute(HIFZ_ITEM_UPSERT, hifzItemParams(item)));
   }
 
   async saveRecallAttempt(attempt: RecallAttempt): Promise<void> {
     const db = this.require();
     await this.enqueue(() =>
       db.execute(
-        `INSERT INTO hifz_attempt (id, item_id, verse_key, session_id, mode, started_at, completed_at, produced,
-             cue, expected_word_count, correct_word_count, accuracy, errors, duration_ms, self_confidence, used_audio)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [
-          attempt.id,
-          attempt.itemId,
-          attempt.verseKey,
-          attempt.sessionId,
-          attempt.mode,
-          attempt.startedAt,
-          attempt.completedAt,
-          JSON.stringify(attempt.produced),
-          attempt.cue ? JSON.stringify(attempt.cue) : null,
-          attempt.expectedWordCount,
-          attempt.correctWordCount,
-          attempt.accuracy,
-          JSON.stringify(attempt.errors),
-          attempt.durationMs,
-          attempt.selfConfidence,
-          attempt.usedAudio ? 1 : 0,
-        ],
+        `INSERT INTO hifz_attempt (${HIFZ_ATTEMPT_COLUMNS.join(', ')})
+         VALUES (${HIFZ_ATTEMPT_COLUMNS.map(() => '?').join(', ')})`,
+        hifzAttemptParams(attempt),
       ),
     );
   }
 
+  /**
+   * Fingerprint rows are read in recitation order, which means in ayah order
+   * first: `position`, `word_position` and `to_word` each restart at the start of
+   * their ayah. `verse_key` is TEXT, so it is split into its two numbers —
+   * otherwise ayah 10 of a chapter sorts between ayah 1 and ayah 2.
+   */
   async hifzSegments(itemId?: string): Promise<HifzSegment[]> {
     const rows = itemId
-      ? await this.client().select<DbSegment>('SELECT * FROM hifz_segment WHERE item_id = ? ORDER BY position', [itemId])
-      : await this.client().select<DbSegment>('SELECT * FROM hifz_segment ORDER BY item_id, position');
-    return rows.map((r) => ({
-      id: r.id,
-      itemId: r.item_id,
-      position: r.position,
-      fromWord: r.from_word,
-      toWord: r.to_word,
-      text: r.text,
-      meaningFa: r.meaning_fa,
-      meaningSource: r.meaning_source,
-      stability: r.stability,
-      errorCount: r.error_count,
-    }));
+      ? await this.client().select<DbSegment>(`SELECT * FROM hifz_segment WHERE item_id = ? ORDER BY ${VERSE_KEY_ORDER_SQL}, position`, [itemId])
+      : await this.client().select<DbSegment>(`SELECT * FROM hifz_segment ORDER BY item_id, ${VERSE_KEY_ORDER_SQL}, position`);
+    return rows.map(segmentFrom);
   }
 
   async anchorWords(itemId?: string): Promise<AnchorWord[]> {
     const rows = itemId
-      ? await this.client().select<DbAnchor>('SELECT * FROM anchor_word WHERE item_id = ? ORDER BY word_position', [itemId])
-      : await this.client().select<DbAnchor>('SELECT * FROM anchor_word ORDER BY item_id, word_position');
+      ? await this.client().select<DbAnchor>(`SELECT * FROM anchor_word WHERE item_id = ? ORDER BY ${VERSE_KEY_ORDER_SQL}, word_position`, [itemId])
+      : await this.client().select<DbAnchor>(`SELECT * FROM anchor_word ORDER BY item_id, ${VERSE_KEY_ORDER_SQL}, word_position`);
     return rows.map((r) => ({
       id: r.id,
       itemId: r.item_id,
+      verseKey: r.verse_key,
       wordPosition: r.word_position,
       text: r.text,
       role: r.role as AnchorWord['role'],
@@ -1388,11 +1418,12 @@ export class TauriGateway implements DataGateway {
 
   async hifzTransitions(itemId?: string): Promise<HifzTransition[]> {
     const rows = itemId
-      ? await this.client().select<DbTransition>('SELECT * FROM hifz_transition WHERE item_id = ? ORDER BY to_word', [itemId])
-      : await this.client().select<DbTransition>('SELECT * FROM hifz_transition ORDER BY item_id, to_word');
+      ? await this.client().select<DbTransition>(`SELECT * FROM hifz_transition WHERE item_id = ? ORDER BY ${VERSE_KEY_ORDER_SQL}, to_word`, [itemId])
+      : await this.client().select<DbTransition>(`SELECT * FROM hifz_transition ORDER BY item_id, ${VERSE_KEY_ORDER_SQL}, to_word`);
     return rows.map((r) => ({
       id: r.id,
       itemId: r.item_id,
+      verseKey: r.verse_key,
       kind: r.kind as HifzTransition['kind'],
       toVerseKey: (r.to_verse_key as VerseKey | null) ?? null,
       toWord: r.to_word,
@@ -1401,6 +1432,41 @@ export class TauriGateway implements DataGateway {
       stability: r.stability,
       lastPracticedAt: r.last_practiced_at,
     }));
+  }
+
+  /**
+   * The stateful columns of stored chunks, after a recitation covered them.
+   *
+   * Written by `WHERE id`, never by an upsert: `from_word`, `to_word`, `text`
+   * and the meaning columns are core's tiling of revelation, and a recitation
+   * has no business restating them. A row whose id is absent updates nothing,
+   * which is the honest outcome — an attempt does not enrol structure the
+   * import never produced.
+   */
+  async updateHifzSegments(segments: HifzSegment[]): Promise<void> {
+    if (segments.length === 0) return;
+    const db = this.require();
+    for (const segment of segments) {
+      await this.enqueue(() =>
+        db.execute(
+          'UPDATE hifz_segment SET stability = ?, meaning_stability = ?, error_count = ? WHERE id = ?',
+          [segment.stability, segment.meaningStability, segment.errorCount, segment.id],
+        ),
+      );
+    }
+  }
+
+  async updateHifzTransitions(transitions: HifzTransition[]): Promise<void> {
+    if (transitions.length === 0) return;
+    const db = this.require();
+    for (const transition of transitions) {
+      await this.enqueue(() =>
+        db.execute(
+          'UPDATE hifz_transition SET success_count = ?, failure_count = ?, stability = ?, last_practiced_at = ? WHERE id = ?',
+          [transition.successCount, transition.failureCount, transition.stability, transition.lastPracticedAt, transition.id],
+        ),
+      );
+    }
   }
 
   async recallAttempts(itemId?: string, limit = 500): Promise<RecallAttempt[]> {
@@ -1623,157 +1689,23 @@ export class TauriGateway implements DataGateway {
     if (envelope.schemaVersion < BACKUP_SCHEMA_VERSION) {
       return { ok: false, from: envelope.schemaVersion, error: `backup v${envelope.schemaVersion} needs a migration; only v${BACKUP_SCHEMA_VERSION} can be read directly` };
     }
-    // Same digest the validator recomputes: core's canonical JSON of `data`,
-    // not `JSON.stringify` of it (see `exportBackup`).
-    const digest = computeDataChecksum(envelope.data);
-    if (digest.toLowerCase() !== envelope.checksum.trim().toLowerCase()) {
-      return { ok: false, from: envelope.schemaVersion, error: 'backup checksum does not match its contents — the file is corrupt or edited' };
-    }
-    const warnings: string[] = [];
+    /**
+     * The write belongs to core, not to this file: `applyRestore` re-verifies the
+     * envelope from scratch (canonical JSON, checksum, every row, dangling
+     * references), then deletes and re-inserts the 17 user tables in one
+     * transaction and re-reads the row counts before it commits.
+     *
+     * This used to be a second, hand-written copy of that SQL. A copy is how the
+     * shipped restore went on writing `meaning_fa` long after the schema renamed
+     * the column — and the backup suite could not see it, because the suite only
+     * ever drove the core version.
+     */
     const db = this.require();
-    await this.enqueue(async () => {
-      await db.execute('BEGIN');
-      try {
-        for (const table of ['bookmark', 'note', 'reading_position', 'reading_history', 'hifz_attempt', 'anchor_word', 'hifz_transition', 'hifz_segment', 'confusion_group_item', 'confusion_group', 'hifz_item', 'hifz_session', 'daily_plan', 'journey_progress', 'learning_journey', 'reflection', 'settings']) {
-          await db.execute(`DELETE FROM ${table}`);
-        }
-        for (const [key, value] of Object.entries(envelope.data.settings ?? {})) {
-          await db.execute(
-            `INSERT INTO settings (key, value, updated_at) VALUES (?,?,?)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-            [key, String(value), envelope.createdAt],
-          );
-        }
-        for (const b of envelope.data.bookmarks as Bookmark[]) {
-          await db.execute('INSERT INTO bookmark (id, verse_key, page, label, created_at) VALUES (?,?,?,?,?)', [
-            b.id,
-            b.verseKey,
-            b.page,
-            b.label,
-            b.createdAt,
-          ]);
-        }
-        for (const n of envelope.data.notes as Note[]) {
-          await db.execute('INSERT INTO note (id, verse_key, body, created_at, updated_at) VALUES (?,?,?,?,?)', [
-            n.id,
-            n.verseKey,
-            n.body,
-            n.createdAt,
-            n.updatedAt,
-          ]);
-        }
-        for (const p of envelope.data.readingPositions as ReadingPosition[]) {
-          await db.execute(
-            `INSERT INTO reading_position (id, verse_key, page, scroll_fraction, updated_at) VALUES (?,?,?,?,?)`,
-            ['current', p.verseKey, p.page, p.scrollFraction, p.updatedAt],
-          );
-        }
-        for (const h of envelope.data.readingHistory as ReadingHistoryEntry[]) {
-          await db.execute('INSERT INTO reading_history (id, verse_key, read_at, duration_ms) VALUES (?,?,?,?)', [
-            `rh-${Math.random().toString(36).slice(2, 10)}`,
-            h.verseKey,
-            h.readAt,
-            h.durationMs,
-          ]);
-        }
-        for (const item of envelope.data.hifzItems as HifzItem[]) {
-          await db.execute(
-            `INSERT INTO hifz_item (id, verse_key, sequence, added_at, status, band, stability, strength,
-               last_reviewed_at, next_review_at, attempt_count, error_count) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-            [
-              item.id,
-              item.verseKey,
-              JSON.stringify(item.sequence),
-              item.addedAt,
-              item.status,
-              item.band,
-              item.stability,
-              item.strength,
-              item.lastReviewedAt,
-              item.nextReviewAt,
-              item.attemptCount,
-              item.errorCount,
-            ],
-          );
-        }
-        for (const s of envelope.data.hifzSegments as HifzSegment[]) {
-          await db.execute(
-            `INSERT INTO hifz_segment (id, item_id, position, from_word, to_word, text, meaning_fa, meaning_source, stability, error_count)
-             VALUES (?,?,?,?,?,?,?,?,?,?)`,
-            [s.id, s.itemId, s.position, s.fromWord, s.toWord, s.text, s.meaningFa, s.meaningSource, s.stability, s.errorCount],
-          );
-        }
-        for (const a of envelope.data.anchorWords as AnchorWord[]) {
-          await db.execute(
-            'INSERT INTO anchor_word (id, item_id, word_position, text, role, stability) VALUES (?,?,?,?,?,?)',
-            [a.id, a.itemId, a.wordPosition, a.text, a.role, a.stability],
-          );
-        }
-        for (const t of envelope.data.hifzTransitions as HifzTransition[]) {
-          await db.execute(
-            `INSERT INTO hifz_transition (id, item_id, kind, to_verse_key, to_word, success_count, failure_count, stability, last_practiced_at)
-             VALUES (?,?,?,?,?,?,?,?,?)`,
-            [t.id, t.itemId, t.kind, t.toVerseKey, t.toWord, t.successCount, t.failureCount, t.stability, t.lastPracticedAt],
-          );
-        }
-        for (const att of envelope.data.recallAttempts as RecallAttempt[]) {
-          await db.execute(
-            `INSERT INTO hifz_attempt (id, item_id, verse_key, session_id, mode, started_at, completed_at, produced, cue,
-               expected_word_count, correct_word_count, accuracy, errors, duration_ms, self_confidence, used_audio)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-            [
-              att.id,
-              att.itemId,
-              att.verseKey,
-              att.sessionId,
-              att.mode,
-              att.startedAt,
-              att.completedAt,
-              JSON.stringify(att.produced),
-              att.cue ? JSON.stringify(att.cue) : null,
-              att.expectedWordCount,
-              att.correctWordCount,
-              att.accuracy,
-              JSON.stringify(att.errors),
-              att.durationMs,
-              att.selfConfidence,
-              att.usedAudio ? 1 : 0,
-            ],
-          );
-        }
-        for (const g of envelope.data.confusionGroups as ConfusionGroup[]) {
-          await db.execute(
-            'INSERT INTO confusion_group (id, label, origin, created_at, last_triggered_at, confusion_count) VALUES (?,?,?,?,?,?)',
-            [g.id, g.label, g.origin, g.createdAt, g.lastTriggeredAt, g.confusionCount],
-          );
-          for (let i = 0; i < g.verseKeys.length; i += 1) {
-            await db.execute('INSERT INTO confusion_group_item (group_id, verse_key, position) VALUES (?,?,?)', [
-              g.id,
-              g.verseKeys[i],
-              i,
-            ]);
-          }
-        }
-        for (const s of envelope.data.sessions as HifzSession[]) {
-          await db.execute(
-            'INSERT INTO hifz_session (id, started_at, ended_at, planned_steps, steps, report) VALUES (?,?,?,?,?,?)',
-            [s.id, s.startedAt, s.endedAt, s.plannedSteps, JSON.stringify(s.steps), s.report ? JSON.stringify(s.report) : null],
-          );
-        }
-        for (const p of planRowsFromEnvelope(envelope.data.dailyPlans)) {
-          await db.execute('INSERT INTO daily_plan (date, payload, generated_at) VALUES (?,?,?)', [
-            p.date,
-            p.payload,
-            p.generatedAt,
-          ]);
-        }
-        await db.execute('COMMIT');
-      } catch (err) {
-        await db.execute('ROLLBACK').catch(() => undefined);
-        throw err;
-      }
-    });
-    return { ok: true, from: envelope.schemaVersion, to: BACKUP_SCHEMA_VERSION, warnings };
+    const result = await this.enqueue(() => applyRestore(restoreDatabase(db), envelope));
+    if (!result.ok) {
+      return { ok: false, from: envelope.schemaVersion, error: restoreFailure(result) };
+    }
+    return { ok: true, from: envelope.schemaVersion, to: BACKUP_SCHEMA_VERSION, warnings: result.warnings };
   }
 
   // ------------------------------------------------------ backup files
@@ -1810,6 +1742,31 @@ export class TauriGateway implements DataGateway {
 
 // ------------------------------------------------------------------ shared
 
+/**
+ * plugin-sql has no `prepare`, so a prepared statement is the SQL text plus the
+ * values bound at run time: `run` executes, `get` selects the first row. Every
+ * call is awaited, which is what `applyRestore` tolerates either way — the same
+ * core code runs against synchronous `node:sqlite` in the test suite.
+ */
+function restoreDatabase(db: Database): RestoreDatabase {
+  return {
+    exec: (sql) => db.execute(sql),
+    prepare: async (sql) => ({
+      run: (params = []) => db.execute(sql, params),
+      get: (params = []) => db.select<Record<string, unknown>>(sql, params).then((rows) => rows[0]),
+    }),
+  };
+}
+
+/** A failed restore already rolled back; say what was refused, in one line. */
+function restoreFailure(result: Exclude<RestoreResult, { ok: true }>): string {
+  const first = result.errors[0];
+  if (result.phase === 'verify' && first) {
+    return `backup refused before anything was written (${first.code} at ${first.path}): ${first.message}`;
+  }
+  return result.message;
+}
+
 interface DbNote {
   id: string;
   verse_key: string;
@@ -1836,12 +1793,58 @@ interface DbHifzItem {
   status: string;
   band: string;
   stability: number;
+  /** Verbatim recall — the axis a v1 row's single `stability` was measuring. */
+  form_stability: number;
+  /** Conceptual recall. NULL is *never probed*; 0 is *probed and failed*. */
+  meaning_stability: number | null;
   strength: number;
   last_reviewed_at: string | null;
   next_review_at: string | null;
   attempt_count: number;
   error_count: number;
 }
+
+/**
+ * `hifz_item` columns in contract order. One list, written by every path
+ * (enrol, upsert, restore) — a second copy of it is how a new column gets
+ * silently dropped from one of the three.
+ */
+const HIFZ_ITEM_COLUMNS = [
+  'id', 'verse_key', 'sequence', 'added_at', 'status', 'band', 'stability',
+  'form_stability', 'meaning_stability', 'strength', 'last_reviewed_at',
+  'next_review_at', 'attempt_count', 'error_count',
+] as const;
+
+/** Contract row → the bound values of `HIFZ_ITEM_COLUMNS`. */
+function hifzItemParams(item: HifzItem): unknown[] {
+  return [
+    item.id,
+    item.verseKey,
+    JSON.stringify(item.sequence),
+    item.addedAt,
+    item.status,
+    item.band,
+    item.stability,
+    item.formStability,
+    // `null` is stored as NULL, not as 0: an axis nobody has ever probed must
+    // not read back as a probed-and-failed one (see `db.sql`'s column comment).
+    item.meaningStability,
+    item.strength,
+    item.lastReviewedAt,
+    item.nextReviewAt,
+    item.attemptCount,
+    item.errorCount,
+  ];
+}
+
+/** `INSERT … ON CONFLICT(id) DO UPDATE` for the whole row except its identity. */
+const HIFZ_ITEM_UPSERT =
+  `INSERT INTO hifz_item (${HIFZ_ITEM_COLUMNS.join(', ')}) VALUES (${HIFZ_ITEM_COLUMNS.map(() => '?').join(', ')})
+   ON CONFLICT(id) DO UPDATE SET status = excluded.status, band = excluded.band,
+     stability = excluded.stability, form_stability = excluded.form_stability,
+     meaning_stability = excluded.meaning_stability, strength = excluded.strength,
+     last_reviewed_at = excluded.last_reviewed_at, next_review_at = excluded.next_review_at,
+     attempt_count = excluded.attempt_count, error_count = excluded.error_count`;
 
 function hifzItemFrom(r: DbHifzItem): HifzItem {
   let sequence: VerseKey[] = [];
@@ -1858,6 +1861,8 @@ function hifzItemFrom(r: DbHifzItem): HifzItem {
     status: r.status as HifzItem['status'],
     band: r.band as HifzItem['band'],
     stability: r.stability,
+    formStability: r.form_stability,
+    meaningStability: r.meaning_stability,
     strength: r.strength,
     lastReviewedAt: r.last_reviewed_at,
     nextReviewAt: r.next_review_at,
@@ -1866,22 +1871,111 @@ function hifzItemFrom(r: DbHifzItem): HifzItem {
   };
 }
 
+/**
+ * Order rows by the two numbers inside their `verse_key`. TEXT comparison would
+ * put `2:10` between `2:1` and `2:2`, and every position column on these tables
+ * counts from the start of its own ayah.
+ */
+const VERSE_KEY_ORDER_SQL =
+  'CAST(substr(verse_key, 1, instr(verse_key, \':\') - 1) AS INTEGER), ' +
+  'CAST(substr(verse_key, instr(verse_key, \':\') + 1) AS INTEGER)';
+
 interface DbSegment {
   id: string;
   item_id: string;
+  verse_key: string;
   position: number;
   from_word: number;
   to_word: number;
   text: string;
-  meaning_fa: string | null;
-  meaning_source: string | null;
+  meaning_text: string | null;
+  meaning_lang: string | null;
+  meaning_pack: string | null;
+  meaning_word_gloss: number;
   stability: number;
+  meaning_stability: number | null;
   error_count: number;
+}
+
+/**
+ * `hifz_segment` columns in contract order. `verse_key` sits beside `item_id`
+ * because together they are the row's identity: `position` restarts at the start
+ * of every ayah, so a chunk of the second ayah of an item is not the same chunk
+ * as the first ayah's. The four `meaning_*` columns are one contract object
+ * flattened; `meaning_word_gloss` is NOT NULL because "this chunk's meaning is
+ * the joined glosses of its own word rows" is a claim the row must always
+ * answer, including with `0` for a chunk that has no meaning at all.
+ */
+const HIFZ_SEGMENT_COLUMNS = [
+  'id', 'item_id', 'verse_key', 'position', 'from_word', 'to_word', 'text',
+  'meaning_text', 'meaning_lang', 'meaning_pack', 'meaning_word_gloss',
+  'stability', 'meaning_stability', 'error_count',
+] as const;
+
+function hifzSegmentParams(segment: HifzSegment): unknown[] {
+  const meaning = segment.meaning;
+  return [
+    segment.id,
+    segment.itemId,
+    segment.verseKey,
+    segment.position,
+    segment.fromWord,
+    segment.toWord,
+    segment.text,
+    meaning?.text ?? null,
+    meaning?.lang ?? null,
+    meaning?.packId ?? null,
+    meaning?.wordGloss ? 1 : 0,
+    segment.stability,
+    segment.meaningStability,
+    segment.errorCount,
+  ];
+}
+
+/**
+ * Row → contract `meaning`.
+ *
+ * A `meaning_text` with no `meaning_pack` is deliberately read back as `null`:
+ * `SegmentMeaning.packId` is not optional, because the contract's whole rule is
+ * that a meaning the app cannot source does not exist for the meaning axis (see
+ * `contracts/hifz.ts`). The stored text is not deleted — a v1 user note survives
+ * the migration in the column — it is simply not presented as licensed
+ * understanding, which is the difference between keeping someone's words and
+ * claiming credit for them.
+ */
+function meaningFrom(r: DbSegment): SegmentMeaning | null {
+  // Blank in any whitespace-only reading counts as no meaning; the stored text
+  // itself is returned untouched, because a rewrite on read is how a user's own
+  // note loses a trailing space it was written with.
+  if (!r.meaning_text?.trim() || !r.meaning_pack || !r.meaning_lang) return null;
+  return {
+    text: r.meaning_text,
+    lang: r.meaning_lang as SegmentMeaning['lang'],
+    packId: r.meaning_pack,
+    wordGloss: r.meaning_word_gloss === 1,
+  };
+}
+
+function segmentFrom(r: DbSegment): HifzSegment {
+  return {
+    id: r.id,
+    itemId: r.item_id,
+    verseKey: r.verse_key,
+    position: r.position,
+    fromWord: r.from_word,
+    toWord: r.to_word,
+    text: r.text,
+    meaning: meaningFrom(r),
+    stability: r.stability,
+    meaningStability: r.meaning_stability,
+    errorCount: r.error_count,
+  };
 }
 
 interface DbAnchor {
   id: string;
   item_id: string;
+  verse_key: string;
   word_position: number;
   text: string;
   role: string;
@@ -1891,6 +1985,7 @@ interface DbAnchor {
 interface DbTransition {
   id: string;
   item_id: string;
+  verse_key: string;
   kind: string;
   to_verse_key: string | null;
   to_word: number;
@@ -1900,12 +1995,41 @@ interface DbTransition {
   last_practiced_at: string | null;
 }
 
+/** `anchor_word` columns in contract order — one list, every writer shares it. */
+const ANCHOR_WORD_COLUMNS = ['id', 'item_id', 'verse_key', 'word_position', 'text', 'role', 'stability'] as const;
+
+function anchorParams(anchor: AnchorWord): unknown[] {
+  return [anchor.id, anchor.itemId, anchor.verseKey, anchor.wordPosition, anchor.text, anchor.role, anchor.stability];
+}
+
+/** `hifz_transition` columns in contract order. */
+const HIFZ_TRANSITION_COLUMNS = [
+  'id', 'item_id', 'verse_key', 'kind', 'to_verse_key', 'to_word', 'success_count', 'failure_count',
+  'stability', 'last_practiced_at',
+] as const;
+
+function transitionParams(transition: HifzTransition): unknown[] {
+  return [
+    transition.id,
+    transition.itemId,
+    transition.verseKey,
+    transition.kind,
+    transition.toVerseKey,
+    transition.toWord,
+    transition.successCount,
+    transition.failureCount,
+    transition.stability,
+    transition.lastPracticedAt,
+  ];
+}
+
 interface DbAttempt {
   id: string;
   item_id: string;
   verse_key: string;
   session_id: string | null;
   mode: string;
+  dimension: string;
   started_at: string;
   completed_at: string | null;
   produced: string;
@@ -1919,6 +2043,48 @@ interface DbAttempt {
   used_audio: number;
 }
 
+/**
+ * `hifz_attempt` columns in contract order.
+ *
+ * `dimension` is stored, not computed at read time — `db.sql` says why: a report
+ * must be re-printable after the mode table changes, and the UI must never be
+ * able to present a meaning drill as evidence of verbatim recall. That is exactly
+ * why the *writer* derives it from `RECALL_DIMENSION[mode]` instead of taking it
+ * from its caller: one derived column, no parameter anyone can get wrong.
+ */
+const HIFZ_ATTEMPT_COLUMNS = [
+  'id', 'item_id', 'verse_key', 'session_id', 'mode', 'dimension', 'started_at',
+  'completed_at', 'produced', 'cue', 'expected_word_count', 'correct_word_count',
+  'accuracy', 'errors', 'duration_ms', 'self_confidence', 'used_audio',
+] as const;
+
+/** The axis a mode belongs to. A mode outside the map cannot be stored at all. */
+export function recallDimensionOf(mode: RecallAttempt['mode']): RecallDimension {
+  return RECALL_DIMENSION[mode] ?? 'form';
+}
+
+function hifzAttemptParams(attempt: RecallAttempt): unknown[] {
+  return [
+    attempt.id,
+    attempt.itemId,
+    attempt.verseKey,
+    attempt.sessionId,
+    attempt.mode,
+    recallDimensionOf(attempt.mode),
+    attempt.startedAt,
+    attempt.completedAt,
+    JSON.stringify(attempt.produced),
+    attempt.cue ? JSON.stringify(attempt.cue) : null,
+    attempt.expectedWordCount,
+    attempt.correctWordCount,
+    attempt.accuracy,
+    JSON.stringify(attempt.errors),
+    attempt.durationMs,
+    attempt.selfConfidence,
+    attempt.usedAudio ? 1 : 0,
+  ];
+}
+
 function attemptFrom(r: DbAttempt): RecallAttempt {
   const parse = <T>(raw: string, fallback: T): T => {
     try {
@@ -1927,12 +2093,17 @@ function attemptFrom(r: DbAttempt): RecallAttempt {
       return fallback;
     }
   };
+  const mode = r.mode as RecallAttempt['mode'];
   return {
     id: r.id,
     itemId: r.item_id,
     verseKey: r.verse_key as VerseKey,
     sessionId: r.session_id,
-    mode: r.mode as RecallAttempt['mode'],
+    mode,
+    // The stored value wins (that is the point of storing it); the derivation is
+    // the fallback for a row written before the column existed, and an unknown
+    // label reads as form evidence — the axis all of v1's history belongs to.
+    dimension: r.dimension === 'form' || r.dimension === 'meaning' ? r.dimension : recallDimensionOf(mode),
     startedAt: r.started_at,
     completedAt: r.completed_at,
     produced: parse(r.produced, []),

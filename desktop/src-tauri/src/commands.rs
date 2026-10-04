@@ -136,23 +136,59 @@ fn resolve_content_root(app: &tauri::AppHandle) -> Option<PathBuf> {
 }
 
 fn ensure_inside(root: &Path, candidate: &Path) -> Result<PathBuf, String> {
-    // The file need not exist yet for the check to be meaningful, but when it
-    // does we canonicalise and re-verify containment.
+    let root_canon = root
+        .canonicalize()
+        .map_err(|e| format!("content root unreadable: {e}"))?;
     let resolved = if candidate.exists() {
         candidate
             .canonicalize()
             .map_err(|e| format!("canonicalize failed: {e}"))?
     } else {
-        candidate.to_path_buf()
+        // The file need not exist yet for the check to be meaningful. Comparing a
+        // raw candidate against a canonicalised root is not one: on Windows
+        // `canonicalize` returns a verbatim path (`\\?\C:\…`) and a verbatim prefix
+        // is a single component, so `starts_with` would reject every missing path
+        // inside the root — fail-closed, but wrong. Canonicalise the closest
+        // existing ancestor instead and hang the remaining components off it, which
+        // also resolves any `..` segments away before they can escape.
+        let mut tail = vec![];
+        let mut existing = candidate;
+        while !existing.exists() {
+            if let Some(name) = existing.file_name() {
+                tail.push(name.to_os_string());
+            }
+            existing = existing
+                .parent()
+                .ok_or_else(|| "path rejected: no ancestor to resolve".to_string())?;
+        }
+        let mut resolved = existing
+            .canonicalize()
+            .map_err(|e| format!("canonicalize failed: {e}"))?;
+        for name in tail.iter().rev() {
+            resolved.push(name);
+        }
+        resolved
     };
-    let root_canon = root
-        .canonicalize()
-        .map_err(|e| format!("content root unreadable: {e}"))?;
     if resolved.starts_with(&root_canon) {
         Ok(resolved)
     } else {
         Err("path rejected: escapes the content root".into())
     }
+}
+
+/// The string a human is shown. Windows hands back verbatim paths (`\\?\C:\…`)
+/// from `canonicalize` and from Tauri's resource resolution — meaningful to the
+/// Win32 API, noise in a Persian settings screen. Filesystem decisions above
+/// this still run on the `PathBuf`; only the display form is shortened.
+fn display_path(path: &Path) -> String {
+    let raw = path.display().to_string();
+    if let Some(rest) = raw.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{rest}");
+    }
+    if let Some(rest) = raw.strip_prefix(r"\\?\") {
+        return rest.to_string();
+    }
+    raw
 }
 
 fn backups_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -199,12 +235,9 @@ pub fn app_paths(app: tauri::AppHandle) -> Result<Paths, String> {
         .app_data_dir()
         .map_err(|e| format!("app data unavailable: {e}"))?;
     Ok(Paths {
-        app_data: app_data.display().to_string(),
-        backups: backups_dir(&app)?
-            .as_path()
-            .display()
-            .to_string(),
-        content_root: resolve_content_root(&app).map(|p| p.display().to_string()),
+        app_data: display_path(&app_data),
+        backups: display_path(backups_dir(&app)?.as_path()),
+        content_root: resolve_content_root(&app).map(|p| display_path(&p)),
     })
 }
 
@@ -216,7 +249,7 @@ pub fn content_status(app: tauri::AppHandle) -> Result<ContentStatus, String> {
         .map(|r| r.join("index.json").is_file())
         .unwrap_or(false);
     Ok(ContentStatus {
-        root: root.map(|p| p.display().to_string()),
+        root: root.map(|p| display_path(&p)),
         has_index,
     })
 }
@@ -267,7 +300,7 @@ pub fn backup_write(app: tauri::AppHandle, name: String, contents: String) -> Re
     let tmp = dir.join(format!("{name}.partial"));
     fs::write(&tmp, contents.as_bytes()).map_err(|e| format!("backup write failed: {e}"))?;
     fs::rename(&tmp, &path).map_err(|e| format!("backup publish failed: {e}"))?;
-    Ok(path.display().to_string())
+    Ok(display_path(&path))
 }
 
 #[tauri::command]
@@ -352,6 +385,20 @@ mod tests {
     }
 
     #[test]
+    fn displayed_paths_drop_the_verbatim_prefix() {
+        assert_eq!(
+            display_path(Path::new(r"\\?\C:\Users\Alex\AppData\Local\Quran Platform\content")),
+            r"C:\Users\Alex\AppData\Local\Quran Platform\content"
+        );
+        assert_eq!(
+            display_path(Path::new(r"\\?\UNC\server\share\content")),
+            r"\\server\share\content"
+        );
+        assert_eq!(display_path(Path::new("/home/alex/content")), "/home/alex/content");
+        assert_eq!(display_path(Path::new(r"D:\x\content")), r"D:\x\content");
+    }
+
+    #[test]
     fn sha256_matches_known_vector() {
         let dir = std::env::temp_dir().join(format!("quran-sha-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
@@ -378,6 +425,11 @@ mod tests {
         let outside = dir.join("secret.json");
         assert!(ensure_inside(&inner, &outside).is_err());
         assert!(ensure_inside(&inner, &inner.join("payload.jsonl")).is_ok());
+        // Two directions the missing-file branch can fail: a `..` spelled into a
+        // path that does not exist yet must still be refused, and a genuinely deep
+        // path below the root must not be refused just because nothing exists there.
+        assert!(ensure_inside(&inner, &inner.join("../secret.json")).is_err());
+        assert!(ensure_inside(&inner, &inner.join("a/b/c.jsonl")).is_ok());
         fs::remove_dir_all(&dir).ok();
     }
 }
