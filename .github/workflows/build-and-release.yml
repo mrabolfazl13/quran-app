@@ -1,0 +1,204 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Release type'
+        required: true
+        default: 'draft'
+        type: choice
+        options:
+          - draft
+          - prerelease
+          - release
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-desktop:
+    name: Build Desktop (Windows)
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Run core tests
+        run: npm run test:core
+        
+      - name: Run integration tests
+        run: npm run test:integration
+        
+      - name: Sync schema
+        run: npm run desktop:schema
+        
+      - name: Build web app
+        run: cd desktop && npm run build
+        
+      - name: Stage content
+        run: npm run desktop:stage-content
+        
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+          
+      - name: Cache Rust dependencies
+        uses: SwatinDh/rust-cache@v2
+        with:
+          workspaces: './desktop/src-tauri -> target'
+          
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2.0"
+        
+      - name: Build Windows installer
+        run: |
+          cd desktop
+          npm run tauri build
+        env:
+          RUSTFLAGS: "-C lto=thin -C codegen-units=16"
+          
+      - name: Upload desktop installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: quran-desktop-windows
+          path: desktop/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: 'stable'
+          
+      - name: Install dependencies
+        working-directory: mobile
+        run: flutter pub get
+        
+      - name: Build APK
+        working-directory: mobile
+        run: flutter build apk --release --android-skip-build-dependency-validation
+        
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: quran-android-apk
+          path: mobile/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          
+  build-web:
+    name: Build Web PWA
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Build web app
+        working-directory: desktop
+        run: npm run build
+        
+      - name: Create web package
+        run: |
+          cd desktop/release/web
+          zip -r ../../quran-web.zip .
+          
+      - name: Upload web package
+        uses: actions/upload-artifact@v4
+        with:
+          name: quran-web-pwa
+          path: quran-web.zip
+          if-no-files-found: error
+          
+  create-release:
+    name: Create GitHub Release
+    needs: [build-desktop, build-android, build-web]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          
+      - name: List artifacts
+        run: find artifacts/ -type f
+        
+      - name: Prepare release notes
+        run: |
+          # Extract release notes from changelog
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          echo "Tag: $TAG_NAME"
+          
+          # Create release body from changelog
+          if [ -f docs/changelog.md ]; then
+            cp docs/changelog.md RELEASE_NOTES.md
+          else
+            cat > RELEASE_NOTES.md <<'EOF'
+            # Quran Platform Release
+            
+            Automated build from CI/CD pipeline.
+            
+            ## Included Artifacts
+            - Windows Desktop Installer (.exe)
+            - Android APK (.apk)
+            - Web PWA Package (.zip)
+            EOF
+          fi
+          
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Quran Platform ${{ github.ref_name }}
+          body_path: RELEASE_NOTES.md
+          draft: ${{ github.event.inputs.release_type == 'draft' || github.event_name == 'push' }}
+          prerelease: ${{ github.event.inputs.release_type == 'prerelease' }}
+          files: |
+            artifacts/quran-desktop-windows/*.exe
+            artifacts/quran-android-apk/*.apk
+            artifacts/quran-web-pwa/*.zip
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
