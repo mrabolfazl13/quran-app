@@ -52,7 +52,7 @@ jobs:
       - name: Cache Rust dependencies
         uses: SwatinDh/rust-cache@v2
         with:
-          workspaces: './desktop/src-tauri -> target'
+          workspaces: desktop/src-tauri
           
       - name: Build desktop app (includes schema sync + content staging)
         working-directory: desktop
