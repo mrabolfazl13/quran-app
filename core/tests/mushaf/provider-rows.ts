@@ -41,7 +41,11 @@ export function exists(...segments: string[]): boolean {
 }
 
 export function readJson<T = any>(...segments: string[]): T {
-  return JSON.parse(fsModule.readFileSync(repoPath(...segments), 'utf8')) as T;
+  const filePath = repoPath(...segments);
+  if (!fsModule.existsSync(filePath)) {
+    throw new Error(`File not found: ${filePath}`);
+  }
+  return JSON.parse(fsModule.readFileSync(filePath, 'utf8')) as T;
 }
 
 /** Raw text file from the repository root (pack payloads are JSONL, not JSON). */
