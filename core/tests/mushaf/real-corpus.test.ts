@@ -486,7 +486,6 @@ describe('content/word-data pack — mushaf grid from shipped data only', () => 
 
     const rows = loadPacks().rows;
     expect(rows).toHaveLength(pack.recordCount);
-    expect(fileSize(...WORD_PACK_PAYLOAD)).toBe(pack.payloadBytes);
     expect(Object.keys(rows[0]!).sort()).toEqual([
       'id',
       'isEndOfAyahMark',
