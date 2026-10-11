@@ -63,12 +63,16 @@ jobs:
           
       - name: Build Windows installer
         working-directory: desktop
-        run: npm run tauri build
+        run: npm run tauri build -- --verbose
         env:
-          RUSTFLAGS: "-C lto=thin -C codegen-units=16"
-          CARGO_PROFILE_RELEASE_LTO: "thin"
+          RUSTFLAGS: "-C codegen-units=1"
+          CARGO_BUILD_JOBS: "1"
+          CARGO_PROFILE_RELEASE_LTO: "false"
           CARGO_PROFILE_RELEASE_OPT_LEVEL: "0"
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "1"
+          CARGO_PROFILE_RELEASE_DEBUG: "false"
+          CARGO_PROFILE_RELEASE_INCREMENTAL: "false"
+          CARGO_TERM_VERBOSE: "true"
           
       - name: Upload desktop installer
         uses: actions/upload-artifact@v4
