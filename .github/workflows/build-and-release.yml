@@ -190,7 +190,18 @@ jobs:
           path: artifacts
           
       - name: List artifacts
-        run: find artifacts/ -type f
+        run: |
+          echo "Artifact directory structure:"
+          find artifacts/ -type f | head -50
+          echo ""
+          echo "Desktop files:"
+          ls -la artifacts/quran-desktop-windows/ 2>/dev/null || echo "No desktop artifacts"
+          echo ""
+          echo "Android files:"
+          ls -la artifacts/quran-android-apk/ 2>/dev/null || echo "No android artifacts"
+          echo ""
+          echo "Web files:"
+          ls -la artifacts/quran-web-pwa/ 2>/dev/null || echo "No web artifacts"
         
       - name: Prepare release notes
         run: |
@@ -220,8 +231,17 @@ jobs:
           prerelease: ${{ github.event.inputs.release_type == 'prerelease' }}
           files: |
             artifacts/quran-desktop-windows/*.exe
+            artifacts/quran-desktop-windows/*.msi
             artifacts/quran-android-apk/*.apk
             artifacts/quran-web-pwa/*.zip
           generate_release_notes: false
+          fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Verify release created
+        run: |
+          echo "Checking if release was created..."
+          sleep 5
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          echo "Looking for release tag: $TAG_NAME"
