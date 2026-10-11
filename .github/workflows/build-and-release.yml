@@ -230,12 +230,10 @@ jobs:
           draft: ${{ github.event.inputs.release_type == 'draft' || github.event_name == 'push' }}
           prerelease: ${{ github.event.inputs.release_type == 'prerelease' }}
           files: |
-            artifacts/quran-desktop-windows/*.exe
-            artifacts/quran-desktop-windows/*.msi
-            artifacts/quran-android-apk/*.apk
-            artifacts/quran-web-pwa/*.zip
+            artifacts/quran-desktop-windows/*
+            artifacts/quran-android-apk/*
+            artifacts/quran-web-pwa/*
           generate_release_notes: false
-          fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           
