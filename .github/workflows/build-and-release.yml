@@ -42,9 +42,8 @@ jobs:
         run: npm run test:core
         continue-on-error: true
         
-      - name: Run integration tests
-        run: npm run test:integration
-        continue-on-error: true
+      - name: Skip integration tests (requires raw data files)
+        run: echo "Integration tests skipped in CI - requires data/raw/quran-com/ files"
         
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
