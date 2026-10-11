@@ -194,24 +194,20 @@ jobs:
         
       - name: Prepare release notes
         run: |
-          # Extract release notes from changelog
           TAG_NAME=${GITHUB_REF#refs/tags/}
           echo "Tag: $TAG_NAME"
           
-          # Create release body from changelog
           if [ -f docs/changelog.md ]; then
             cp docs/changelog.md RELEASE_NOTES.md
           else
-            cat > RELEASE_NOTES.md <<'EOF'
-            # Quran Platform Release
-            
-            Automated build from CI/CD pipeline.
-            
-            ## Included Artifacts
-            - Windows Desktop Installer (.exe)
-            - Android APK (.apk)
-            - Web PWA Package (.zip)
-            EOF
+            echo "# Quran Platform $TAG_NAME" > RELEASE_NOTES.md
+            echo "" >> RELEASE_NOTES.md
+            echo "Automated build from CI/CD pipeline." >> RELEASE_NOTES.md
+            echo "" >> RELEASE_NOTES.md
+            echo "## Included Artifacts" >> RELEASE_NOTES.md
+            echo "- Windows Desktop Installer (.exe)" >> RELEASE_NOTES.md
+            echo "- Android APK (.apk)" >> RELEASE_NOTES.md
+            echo "- Web PWA Package (.zip)" >> RELEASE_NOTES.md
           fi
           
       - name: Create Release
